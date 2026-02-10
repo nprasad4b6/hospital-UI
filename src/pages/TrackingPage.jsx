@@ -38,7 +38,9 @@ const TrackingPage = ({ token }) => {
     const fetchPatient = async () => {
       try {
         setLoading(true);
-        const response = await axios.get(`http://localhost:5000/api/queue`);
+        const API_BASE =
+          process.env.REACT_APP_API_URL || "http://localhost:5000";
+        const response = await axios.get(`${API_BASE}/api/queue`);
         const patients = response.data;
         const patient = patients.find((p) => p.tokenNumber === parseInt(token));
 

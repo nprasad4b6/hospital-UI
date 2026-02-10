@@ -1,6 +1,7 @@
 import React, { useState } from "react";
 import { useForm } from "react-hook-form";
 import axios from "axios";
+const API_BASE = process.env.REACT_APP_API_URL || "http://localhost:5000";
 
 const ReceptionForm = ({ onPatientAdded }) => {
   const {
@@ -29,7 +30,7 @@ const ReceptionForm = ({ onPatientAdded }) => {
       };
 
       const response = await axios.post(
-        "http://localhost:5000/api/patients",
+        `${API_BASE}/api/patients`,
         patientData,
       );
 
