@@ -1,0 +1,23 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+body {
+  font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+}
+
+.medical-gradient {
+  @apply bg-gradient-to-r from-medical-600 to-medical-700;
+}
+
+.input-field {
+  @apply w-full px-4 py-3 rounded-lg border-2 border-gray-200 focus:outline-none focus:border-medical-500 transition-colors;
+}
+
+.btn-primary {
+  @apply px-6 py-3 bg-medical-600 text-white font-semibold rounded-lg hover:bg-medical-700 transition-colors duration-200;
+}
+
+.btn-primary:disabled {
+  @apply bg-gray-400 cursor-not-allowed;
+}
