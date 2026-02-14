@@ -11,6 +11,11 @@ const LobbyTV = () => {
   const [allPatients, setAllPatients] = useState([]);
   const [fameCount, setFameCount] = useState(0);
   const [voiceEnabled, setVoiceEnabled] = useState(true);
+  const [selectedDate, setSelectedDate] = useState(
+    new Date().toISOString().split("T")[0]
+  ); // Today's date (YYYY-MM-DD)
+  const [showDatePicker, setShowDatePicker] = useState(false);
+  const [socketRef, setSocketRef] = useState(null);
   const { announcePatientCall, isSupported: isVoiceSupported } =
     useQueueVoice();
 
@@ -44,16 +49,27 @@ const LobbyTV = () => {
     };
 
     const newSocket = io(SOCKET_SERVER);
+    setSocketRef(newSocket);
 
     newSocket.on("connect", () => {
       console.log("Connected to server - Lobby TV");
-      newSocket.emit("GET_QUEUE");
+      // Request queue for selected date
+      if (selectedDate) {
+        newSocket.emit("GET_QUEUE_BY_DATE", selectedDate);
+      } else {
+        newSocket.emit("GET_QUEUE");
+      }
     });
 
     newSocket.on("QUEUE_UPDATE", (data) => {
       updateLobbyDisplay(data);
       // refresh fame counter on queue updates
       fetchFameCount();
+    });
+
+    newSocket.on("RESET_SUCCESS", (data) => {
+      console.log("Queue reset:", data.message);
+      updateLobbyDisplay(data.queue);
     });
 
     newSocket.on("disconnect", () => {
@@ -63,7 +79,7 @@ const LobbyTV = () => {
     return () => {
       newSocket.close();
     };
-  }, [currentPatient, voiceEnabled, announcePatientCall, isVoiceSupported]);
+  }, [currentPatient, voiceEnabled, announcePatientCall, isVoiceSupported, selectedDate]);
 
   const fetchFameCount = async () => {
     try {
@@ -81,8 +97,60 @@ const LobbyTV = () => {
     fetchFameCount();
   }, []);
 
+  /**
+   * Handle date selection change
+   */
+  const handleDateChange = (e) => {
+    const newDate = e.target.value;
+    setSelectedDate(newDate);
+    if (socketRef) {
+      socketRef.emit("GET_QUEUE_BY_DATE", newDate);
+    }
+  };
+
+  /**
+   * Reset to today's date
+   */
+  const handleResetToToday = () => {
+    const todayDate = new Date().toISOString().split("T")[0];
+    setSelectedDate(todayDate);
+    if (socketRef) {
+      socketRef.emit("RESET_QUEUE");
+      socketRef.emit("GET_QUEUE_BY_DATE", todayDate);
+    }
+  };
+
   return (
     <div className="w-screen h-screen bg-gradient-to-br from-medical-900 via-medical-800 to-blue-900 overflow-hidden flex flex-col">
+      {/* Date Filter Header - Responsive */}
+      <div className="bg-gradient-to-r from-medical-800 to-blue-900 py-2 md:py-3 px-3 md:px-6 lg:px-12 border-b-2 border-medical-400 flex items-center justify-between gap-3 flex-wrap z-50">
+        <div className="flex items-center gap-2 md:gap-4">
+          <label className="text-white text-xs md:text-sm lg:text-base font-bold uppercase tracking-wide">
+            📅 Filter by Date:
+          </label>
+          <input
+            type="date"
+            value={selectedDate}
+            onChange={handleDateChange}
+            className="px-2 md:px-3 py-1 md:py-2 rounded text-xs md:text-sm font-semibold text-gray-800 focus:outline-none focus:ring-2 focus:ring-medical-400"
+          />
+        </div>
+
+        {/* Reset Button */}
+        <button
+          onClick={handleResetToToday}
+          className="bg-green-500 hover:bg-green-600 text-white px-3 md:px-4 py-1 md:py-2 rounded font-bold text-xs md:text-sm uppercase transition-all shadow-lg"
+        >
+          🔄 Reset to Today
+        </button>
+
+        {/* Date Display */}
+        <div className="text-white text-xs md:text-sm font-semibold">
+          {selectedDate === new Date().toISOString().split("T")[0]
+            ? "📆 Showing: Today"
+            : `📆 Showing: ${new Date(selectedDate).toLocaleDateString()}`}
+        </div>
+      </div>
       {/* Main Content Grid - Responsive */}
       <div className="flex-1 grid grid-cols-1 md:grid-cols-2 gap-4 md:gap-8 p-4 md:p-8 lg:p-12">
         {/* Left Side - Currently Serving (Token) */}
