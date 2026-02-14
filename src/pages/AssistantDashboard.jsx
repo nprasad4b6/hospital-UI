@@ -98,6 +98,7 @@ const AssistantDashboard = () => {
     announcePatientCall,
     isVoiceSupported,
     showAllByDate,
+    selectedDate,
   ]);
 
   // Handle date selection change
