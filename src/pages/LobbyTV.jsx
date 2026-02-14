@@ -11,9 +11,18 @@ const LobbyTV = () => {
   const [allPatients, setAllPatients] = useState([]);
   const [fameCount, setFameCount] = useState(0);
   const [voiceEnabled, setVoiceEnabled] = useState(true);
-  const [selectedDate, setSelectedDate] = useState(
-    new Date().toISOString().split("T")[0]
-  ); // Today's date (YYYY-MM-DD)
+  // Compute today's date string in IST (Asia/Kolkata) to avoid UTC offset issues
+  const IST_OFFSET_MS = 5.5 * 60 * 60 * 1000; // 5 hours 30 minutes
+  const getIstDateString = (inputDate) => {
+    const base = inputDate ? new Date(inputDate) : new Date();
+    const ist = new Date(base.getTime() + IST_OFFSET_MS);
+    const y = ist.getUTCFullYear();
+    const m = String(ist.getUTCMonth() + 1).padStart(2, "0");
+    const d = String(ist.getUTCDate()).padStart(2, "0");
+    return `${y}-${m}-${d}`;
+  };
+
+  const [selectedDate, setSelectedDate] = useState(getIstDateString());
   const [socketRef, setSocketRef] = useState(null);
   const { announcePatientCall, isSupported: isVoiceSupported } =
     useQueueVoice();
@@ -111,7 +120,7 @@ const LobbyTV = () => {
    * Reset to today's date
    */
   const handleResetToToday = () => {
-    const todayDate = new Date().toISOString().split("T")[0];
+    const todayDate = getIstDateString();
     setSelectedDate(todayDate);
     if (socketRef) {
       socketRef.emit("RESET_QUEUE");
@@ -145,7 +154,7 @@ const LobbyTV = () => {
 
         {/* Date Display */}
         <div className="text-white text-xs md:text-sm font-semibold">
-          {selectedDate === new Date().toISOString().split("T")[0]
+          {selectedDate === getIstDateString()
             ? "📆 Showing: Today"
             : `📆 Showing: ${new Date(selectedDate).toLocaleDateString()}`}
         </div>
