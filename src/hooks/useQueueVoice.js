@@ -72,10 +72,10 @@ export const useQueueVoice = () => {
     if (!window.speechSynthesis) return null;
 
     const voices = window.speechSynthesis.getVoices();
-    
+
     // Try to find Telugu (India) voice first
     const teluguInVoice = voices.find(
-      (voice) => voice.lang && voice.lang.includes("te")
+      (voice) => voice.lang && voice.lang.includes("te"),
     );
     if (teluguInVoice) return teluguInVoice;
 

@@ -87,7 +87,13 @@ const LobbyTV = () => {
     return () => {
       newSocket.close();
     };
-  }, [currentPatient, voiceEnabled, announcePatientCall, isVoiceSupported, selectedDate]);
+  }, [
+    currentPatient,
+    voiceEnabled,
+    announcePatientCall,
+    isVoiceSupported,
+    selectedDate,
+  ]);
 
   const fetchFameCount = async () => {
     try {
@@ -351,7 +357,9 @@ const LobbyTV = () => {
                 Avg Wait
               </p>
             </div>
-            <p className="text-2xl md:text-3xl lg:text-4xl font-black text-yellow-400">15 min</p>
+            <p className="text-2xl md:text-3xl lg:text-4xl font-black text-yellow-400">
+              15 min
+            </p>
           </div>
 
           {/* Clinic Status */}
@@ -362,7 +370,9 @@ const LobbyTV = () => {
                 Status
               </p>
             </div>
-            <p className="text-lg md:text-xl lg:text-2xl font-black text-green-400">On Schedule</p>
+            <p className="text-lg md:text-xl lg:text-2xl font-black text-green-400">
+              On Schedule
+            </p>
           </div>
         </div>
       </div>
@@ -378,7 +388,11 @@ const LobbyTV = () => {
           }`}
           title={voiceEnabled ? "Voice Enabled" : "Voice Disabled"}
         >
-          <svg className="w-4 md:w-5 lg:w-6 h-4 md:h-5 lg:h-6" fill="currentColor" viewBox="0 0 24 24">
+          <svg
+            className="w-4 md:w-5 lg:w-6 h-4 md:h-5 lg:h-6"
+            fill="currentColor"
+            viewBox="0 0 24 24"
+          >
             {voiceEnabled ? (
               <path d="M12 14c1.66 0 3-1.34 3-3V5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3z M17.3 11c0 2.29-1.72 4.21-4 4.47v2.53h2v2H9v-2h2v-2.53c-2.28-.26-4-2.18-4-4.47H5c0 3.53 2.61 6.43 6 6.92v2.08h2v-2.08c3.39-.49 6-3.39 6-6.92h-2z" />
             ) : (
@@ -392,7 +406,9 @@ const LobbyTV = () => {
       <div className="absolute bottom-14 md:bottom-16 lg:bottom-24 right-3 md:right-4 lg:right-24 bg-amber-500 rounded-full px-3 md:px-4 lg:px-5 py-2 md:py-2 lg:py-3 shadow-2xl z-40">
         <p className="text-black font-bold text-xs md:text-sm lg:text-base">
           Total Consultations Today:
-          <span className="ml-1 md:ml-2 text-sm md:text-base lg:text-lg">{fameCount}</span>
+          <span className="ml-1 md:ml-2 text-sm md:text-base lg:text-lg">
+            {fameCount}
+          </span>
         </p>
       </div>
 

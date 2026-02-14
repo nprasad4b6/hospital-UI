@@ -9,6 +9,16 @@ const AssistantDashboard = () => {
   const [currentPatient, setCurrentPatient] = useState(null);
   const [upcomingPatients, setUpcomingPatients] = useState([]);
   const [socket, setSocket] = useState(null);
+  const [selectedDate, setSelectedDate] = useState(() => {
+    // compute IST today
+    const IST_OFFSET_MS = 5.5 * 60 * 60 * 1000;
+    const ist = new Date(Date.now() + IST_OFFSET_MS);
+    const y = ist.getUTCFullYear();
+    const m = String(ist.getUTCMonth() + 1).padStart(2, "0");
+    const d = String(ist.getUTCDate()).padStart(2, "0");
+    return `${y}-${m}-${d}`;
+  });
+  const [showAllByDate, setShowAllByDate] = useState(false);
   const [isBreak, setIsBreak] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [notification, setNotification] = useState("");
@@ -38,9 +48,16 @@ const AssistantDashboard = () => {
 
         setCurrentPatient(inProgress || null);
 
-        // Get next 5 waiting patients
-        const waiting = queue.filter((p) => p.status === "WAITING").slice(0, 5);
-        setUpcomingPatients(waiting);
+        if (showAllByDate) {
+          // show full queue (all statuses) when user requests date-based view
+          setUpcomingPatients(queue);
+        } else {
+          // Get next 5 waiting patients
+          const waiting = queue
+            .filter((p) => p.status === "WAITING")
+            .slice(0, 5);
+          setUpcomingPatients(waiting);
+        }
       } else {
         setCurrentPatient(null);
         setUpcomingPatients([]);
@@ -52,7 +69,12 @@ const AssistantDashboard = () => {
 
     newSocket.on("connect", () => {
       console.log("Connected to server - Assistant");
-      newSocket.emit("GET_QUEUE");
+      // on connect: if user requested a date view, load that date; otherwise load live queue
+      if (showAllByDate && selectedDate) {
+        newSocket.emit("GET_QUEUE_BY_DATE", selectedDate);
+      } else {
+        newSocket.emit("GET_QUEUE");
+      }
     });
 
     newSocket.on("QUEUE_UPDATE", (data) => {
@@ -70,7 +92,47 @@ const AssistantDashboard = () => {
     return () => {
       newSocket.close();
     };
-  }, [currentPatient, voiceEnabled, announcePatientCall, isVoiceSupported]);
+  }, [
+    currentPatient,
+    voiceEnabled,
+    announcePatientCall,
+    isVoiceSupported,
+    showAllByDate,
+  ]);
+
+  // Handle date selection change
+  const handleDateChange = (e) => {
+    const newDate = e.target.value;
+    setSelectedDate(newDate);
+    if (socket) {
+      socket.emit("GET_QUEUE_BY_DATE", newDate);
+      setShowAllByDate(true);
+    }
+  };
+
+  const handleToggleShowAll = () => {
+    const next = !showAllByDate;
+    setShowAllByDate(next);
+    if (socket) {
+      if (next) {
+        socket.emit("GET_QUEUE_BY_DATE", selectedDate);
+      } else {
+        socket.emit("GET_QUEUE");
+      }
+    }
+  };
+
+  const handleResetToToday = () => {
+    const IST_OFFSET_MS = 5.5 * 60 * 60 * 1000;
+    const ist = new Date(Date.now() + IST_OFFSET_MS);
+    const y = ist.getUTCFullYear();
+    const m = String(ist.getUTCMonth() + 1).padStart(2, "0");
+    const d = String(ist.getUTCDate()).padStart(2, "0");
+    const today = `${y}-${m}-${d}`;
+    setSelectedDate(today);
+    setShowAllByDate(true);
+    if (socket) socket.emit("GET_QUEUE_BY_DATE", today);
+  };
 
   const handleCallNext = () => {
     if (socket && !isLoading) {
@@ -93,7 +155,7 @@ const AssistantDashboard = () => {
     <div className="min-h-screen bg-gradient-to-br from-medical-50 to-blue-50 p-4 pb-20">
       {/* Header */}
       <div className="fixed top-0 left-0 right-0 z-40 bg-white border-b-2 border-medical-200 shadow-md p-4">
-        <div className="max-w-md mx-auto flex items-center justify-between">
+        <div className="max-w-7xl mx-auto flex items-center justify-between flex-wrap gap-3">
           <div>
             <h1 className="text-2xl font-bold text-medical-700">
               🏥 Assistant Panel
@@ -102,27 +164,51 @@ const AssistantDashboard = () => {
               Clinical Assistant Dashboard
             </p>
           </div>
+          <div className="flex items-center gap-3">
+            {/* Date filter & Show All toggle */}
+            <div className="flex items-center gap-2 bg-white px-3 py-1 rounded-lg">
+              <label className="text-xs text-gray-700 font-semibold mr-2">
+                Filter date
+              </label>
+              <input
+                type="date"
+                value={selectedDate}
+                onChange={handleDateChange}
+                className="text-xs px-2 py-1 border rounded-md"
+              />
+              <button
+                onClick={handleToggleShowAll}
+                className={`ml-3 text-xs px-2 py-1 rounded whitespace-nowrap min-w-[90px] ${showAllByDate ? "bg-blue-500 text-white" : "bg-gray-100 text-gray-700"}`}
+              >
+                {showAllByDate ? "Showing All" : "Show All"}
+              </button>
+            </div>
 
-          {/* Voice Toggle in Header */}
-          {isVoiceSupported && (
-            <button
-              onClick={() => setVoiceEnabled(!voiceEnabled)}
-              className={`rounded-full p-2 transition-all ${
-                voiceEnabled
-                  ? "bg-green-100 text-green-600 hover:bg-green-200"
-                  : "bg-gray-100 text-gray-400 hover:bg-gray-200"
-              }`}
-              title={voiceEnabled ? "Voice Enabled" : "Voice Disabled"}
-            >
-              <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 24 24">
-                {voiceEnabled ? (
-                  <path d="M12 14c1.66 0 3-1.34 3-3V5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3z M17.3 11c0 2.29-1.72 4.21-4 4.47v2.53h2v2H9v-2h2v-2.53c-2.28-.26-4-2.18-4-4.47H5c0 3.53 2.61 6.43 6 6.92v2.08h2v-2.08c3.39-.49 6-3.39 6-6.92h-2z" />
-                ) : (
-                  <path d="M16.6915026,12.4744748 L3.50612381,13.2599618 C3.19218622,13.2599618 3.03521743,13.4170592 3.03521743,13.5741566 L1.15159189,20.0151496 C0.8376543,20.8006365 0.99,21.89 1.77946707,22.52 C2.40989519,22.99 3.50612381,23.1 4.13399899,22.8429026 L21.714504,14.0454487 C22.6563168,13.5741566 23.1272231,12.6315722 22.9702544,11.6889879 L21.714504,3.42671123 L3.03521743,6.3286752 L3.50612381,12.4744748 Z" />
-                )}
-              </svg>
-            </button>
-          )}
+            {/* Voice Toggle in Header */}
+            {isVoiceSupported && (
+              <button
+                onClick={() => setVoiceEnabled(!voiceEnabled)}
+                className={`rounded-full p-2 transition-all ${
+                  voiceEnabled
+                    ? "bg-green-100 text-green-600 hover:bg-green-200"
+                    : "bg-gray-100 text-gray-400 hover:bg-gray-200"
+                }`}
+                title={voiceEnabled ? "Voice Enabled" : "Voice Disabled"}
+              >
+                <svg
+                  className="w-5 h-5"
+                  fill="currentColor"
+                  viewBox="0 0 24 24"
+                >
+                  {voiceEnabled ? (
+                    <path d="M12 14c1.66 0 3-1.34 3-3V5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3z M17.3 11c0 2.29-1.72 4.21-4 4.47v2.53h2v2H9v-2h2v-2.53c-2.28-.26-4-2.18-4-4.47H5c0 3.53 2.61 6.43 6 6.92v2.08h2v-2.08c3.39-.49 6-3.39 6-6.92h-2z" />
+                  ) : (
+                    <path d="M16.6915026,12.4744748 L3.50612381,13.2599618 C3.19218622,13.2599618 3.03521743,13.4170592 3.03521743,13.5741566 L1.15159189,20.0151496 C0.8376543,20.8006365 0.99,21.89 1.77946707,22.52 C2.40989519,22.99 3.50612381,23.1 4.13399899,22.8429026 L21.714504,14.0454487 C22.6563168,13.5741566 23.1272231,12.6315722 22.9702544,11.6889879 L21.714504,3.42671123 L3.03521743,6.3286752 L3.50612381,12.4744748 Z" />
+                  )}
+                </svg>
+              </button>
+            )}
+          </div>
         </div>
       </div>
 
@@ -280,6 +366,33 @@ const AssistantDashboard = () => {
                   <p className="text-xs text-gray-600">
                     Next in queue • {upcomingPatients.length}
                   </p>
+
+                  {/* Date controls (visible inside Upcoming card for reliability) */}
+                  <div className="mt-2">
+                    <div className="flex items-center gap-2">
+                      <label className="text-xs text-gray-600 font-medium">
+                        Date
+                      </label>
+                      <input
+                        type="date"
+                        value={selectedDate}
+                        onChange={handleDateChange}
+                        className="text-xs px-2 py-1 border rounded-md"
+                      />
+                      <button
+                        onClick={handleToggleShowAll}
+                        className={`ml-2 text-xs px-2 py-1 rounded ${showAllByDate ? "bg-blue-500 text-white" : "bg-gray-100 text-gray-700"}`}
+                      >
+                        {showAllByDate ? "Showing All" : "Show All"}
+                      </button>
+                      <button
+                        onClick={handleResetToToday}
+                        className="ml-2 text-xs px-2 py-1 rounded bg-gray-50 border"
+                      >
+                        Today
+                      </button>
+                    </div>
+                  </div>
                 </div>
               </div>
 

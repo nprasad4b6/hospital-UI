@@ -1,12 +1,15 @@
 # Vizag Medical Pro - Telugu Voice Announcement Feature
 
 ## Overview
+
 The `useQueueVoice` hook now provides full **Telugu language support** for patient announcements, optimized for the Vizianagaram medical clinic audience.
 
 ## Features
 
 ### 1. Telugu Number Mapping (1-50)
+
 Numbers are automatically converted to Telugu words:
+
 - 10 → "పది"
 - 11 → "పదకొండు"
 - 12 → "పన్నెండు"
@@ -16,20 +19,25 @@ Numbers are automatically converted to Telugu words:
 - 50 → "యాభై"
 
 ### 2. Full Telugu Announcement Format
+
 When a patient's status changes to `IN_PROGRESS`, the system announces:
 
 **Original Format:**
+
 ```
 టోకెన్ నంబర్. [నంబర్]. [పేరు]. గారు. దయచేసి డాక్టర్ గారి దగ్గరికి వెళ్ళండి.
 ```
 
 **English Meaning:**
+
 ```
 Token Number. [Number]. [Name]. Sir/Madam. Please go to the doctor's cabin.
 ```
 
 ### 3. Natural Pauses
+
 The announcement uses periods and commas to create natural pauses:
+
 - Period after "టోకెన్ నంబర్" (Token Number)
 - Period after the number
 - Period after the patient name
@@ -39,6 +47,7 @@ The announcement uses periods and commas to create natural pauses:
 This ensures proper articulation for Telugu speech synthesis.
 
 ### 4. Voice Selection
+
 - **Primary Language:** Telugu (te-IN)
 - **Speech Rate:** 0.8 (slightly slower for clarity)
 - **Pitch:** 1.0 (normal)
@@ -47,7 +56,9 @@ This ensures proper articulation for Telugu speech synthesis.
   - Falls back to first available system voice if Telugu is not found
 
 ### 5. Trigger Point
+
 The announcement is triggered when:
+
 - A patient's status changes to `IN_PROGRESS`
 - The `CALL NEXT` button is clicked in the AssistantDashboard
 - Voice announcements are enabled (toggle in header)
