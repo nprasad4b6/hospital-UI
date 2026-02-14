@@ -14,7 +14,6 @@ const LobbyTV = () => {
   const [selectedDate, setSelectedDate] = useState(
     new Date().toISOString().split("T")[0]
   ); // Today's date (YYYY-MM-DD)
-  const [showDatePicker, setShowDatePicker] = useState(false);
   const [socketRef, setSocketRef] = useState(null);
   const { announcePatientCall, isSupported: isVoiceSupported } =
     useQueueVoice();
