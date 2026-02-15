@@ -137,36 +137,34 @@ const LobbyTV = () => {
   return (
     <div className="w-screen h-screen bg-gradient-to-br from-medical-900 via-medical-800 to-blue-900 overflow-hidden flex flex-col">
       {/* Date Filter Header - Responsive */}
-      <div className="bg-gradient-to-r from-medical-800 to-blue-900 py-2 md:py-3 px-3 md:px-6 lg:px-12 border-b-2 border-medical-400 flex items-center justify-between gap-3 flex-wrap z-50">
+      <div className="bg-gradient-to-r from-medical-800 to-blue-900 py-1 md:py-3 px-2 md:px-6 lg:px-12 border-b-2 border-medical-400 flex items-center justify-between gap-2 flex-wrap z-50">
         <div className="flex items-center gap-2 md:gap-4">
-          <label className="text-white text-xs md:text-sm lg:text-base font-bold uppercase tracking-wide">
+          <label className="hidden sm:block text-white text-xs md:text-sm lg:text-base font-bold uppercase tracking-wide">
             📅 Filter by Date:
           </label>
           <input
             type="date"
             value={selectedDate}
             onChange={handleDateChange}
-            className="px-2 md:px-3 py-1 md:py-2 rounded text-xs md:text-sm font-semibold text-gray-800 focus:outline-none focus:ring-2 focus:ring-medical-400"
+            className="px-2 py-1 rounded text-xs md:text-sm font-semibold text-gray-800 focus:outline-none focus:ring-2 focus:ring-medical-400"
           />
         </div>
 
         {/* Reset Button */}
         <button
           onClick={handleResetToToday}
-          className="bg-green-500 hover:bg-green-600 text-white px-3 md:px-4 py-1 md:py-2 rounded font-bold text-xs md:text-sm uppercase transition-all shadow-lg"
+          className="bg-green-500 hover:bg-green-600 text-white px-2 py-1 rounded font-bold text-xs md:text-sm uppercase transition-all shadow-lg"
         >
-          🔄 Reset to Today
+          🔄 Reset
         </button>
 
         {/* Date Display */}
         <div className="text-white text-xs md:text-sm font-semibold">
-          {selectedDate === getIstDateString()
-            ? "📆 Showing: Today"
-            : `📆 Showing: ${new Date(selectedDate).toLocaleDateString()}`}
+          {selectedDate === getIstDateString() ? "📆 Today" : `${new Date(selectedDate).toLocaleDateString()}`}
         </div>
       </div>
       {/* Main Content Grid - Responsive */}
-      <div className="flex-1 grid grid-cols-1 md:grid-cols-2 gap-4 md:gap-8 p-4 md:p-8 lg:p-12">
+      <div className="flex-1 grid grid-cols-1 md:grid-cols-2 gap-6 md:gap-10 p-4 md:p-8 lg:p-12">
         {/* Left Side - Currently Serving (Token) */}
         <div className="col-span-1 flex flex-col justify-center items-center">
           <div className="text-center w-full">
@@ -176,28 +174,28 @@ const LobbyTV = () => {
               <span className="text-medical-200">SERVING</span>
             </h2>
 
-            {/* Token Display - Responsive */}
-            <div className="my-4 md:my-6 lg:my-8">
+            {/* Token Display - Responsive (Hero on mobile) */}
+            <div className="my-6 md:my-8 lg:my-10 w-full">
               {currentPatient ? (
-                <div className="animate-pulse-slow">
-                  <div className="text-6xl md:text-7xl lg:text-9xl font-black text-green-400 drop-shadow-2xl leading-none mb-2 md:mb-4">
+                <div className="w-full rounded-lg md:rounded-3xl p-4 md:p-6 md:shadow-2xl bg-white md:bg-gradient-to-br md:from-medical-900 md:via-medical-800 md:to-blue-900 border-b-2 md:border-none">
+                  <div className="text-6xl md:text-7xl lg:text-9xl font-black text-blue-700 md:text-green-400 leading-none mb-2 md:mb-4">
                     {currentPatient.tokenNumber}
                   </div>
-                  <p className="text-lg md:text-2xl lg:text-3xl text-medical-200 font-bold mb-3 md:mb-4">
+                  <p className="text-lg md:text-2xl lg:text-3xl text-medical-700 md:text-medical-200 font-bold mb-3 md:mb-4">
                     Token Number
                   </p>
 
                   {/* Patient Name & Type */}
-                  <div className="bg-white bg-opacity-10 backdrop-blur rounded-xl md:rounded-2xl p-4 md:p-6 mt-4 md:mt-6">
-                    <p className="text-base md:text-xl lg:text-2xl font-bold text-white mb-2">
+                  <div className="bg-white rounded-xl md:rounded-2xl p-3 md:p-6 mt-3 md:mt-6">
+                    <p className="text-base md:text-xl lg:text-2xl font-bold text-gray-800 mb-1">
                       {toTitleCase(currentPatient.name)}
                     </p>
-                    <p className="text-sm md:text-base lg:text-lg text-medical-200">
+                    <p className="text-sm md:text-base lg:text-lg text-gray-600">
                       📞 {formatPhoneDisplay(currentPatient.phone)}
                     </p>
                     <div className="mt-3 md:mt-4 flex justify-center">
                       <span
-                        className={`text-sm md:text-base lg:text-lg font-bold px-4 md:px-6 py-1 md:py-2 rounded-full ${
+                        className={`text-sm md:text-base font-bold px-3 md:px-6 py-1 md:py-2 rounded-full ${
                           currentPatient.type === "BOOKED"
                             ? "bg-blue-500 text-white"
                             : "bg-purple-500 text-white"
@@ -209,14 +207,14 @@ const LobbyTV = () => {
                   </div>
                 </div>
               ) : (
-                <div className="text-6xl md:text-7xl lg:text-9xl font-black text-gray-500 drop-shadow-2xl leading-none mb-2 md:mb-4">
+                <div className="text-6xl md:text-7xl lg:text-9xl font-black text-gray-400 drop-shadow-2xl leading-none mb-2 md:mb-4">
                   -
                 </div>
               )}
             </div>
 
             {/* Telugu Translation */}
-            <p className="text-base md:text-lg lg:text-2xl text-medical-300 font-bold mt-4 md:mt-6 tracking-wide">
+            <p className="text-sm md:text-lg lg:text-2xl text-gray-600 font-semibold mt-4 md:mt-6 tracking-wide">
               ఇప్పుడు చూస్తున్న నంబర్
             </p>
           </div>
@@ -242,20 +240,20 @@ const LobbyTV = () => {
                 nextPatients.map((patient) => (
                   <div
                     key={patient._id}
-                    className="bg-gradient-to-r from-medical-600 to-medical-700 rounded-lg md:rounded-2xl p-3 md:p-6 shadow-xl transform hover:scale-105 transition-all"
+                    className="bg-white md:bg-gradient-to-r md:from-medical-600 md:to-medical-700 rounded-md md:rounded-2xl p-3 md:p-6 shadow-sm md:shadow-xl transform md:hover:scale-105 transition-all"
                   >
                     <div className="flex items-center justify-between gap-2">
                       <div className="text-left flex-1 min-w-0">
-                        <p className="text-xs md:text-sm text-medical-200 font-semibold">
+                        <p className="text-xs md:text-sm text-gray-500 font-semibold">
                           TOKEN
                         </p>
-                        <p className="text-2xl md:text-4xl font-black text-yellow-300">
+                        <p className="text-2xl md:text-4xl font-black text-blue-600 md:text-yellow-300">
                           {patient.tokenNumber}
                         </p>
                       </div>
 
                       <div className="text-right flex-shrink-0">
-                        <p className="text-xs md:text-sm text-medical-200 font-semibold mb-1">
+                        <p className="text-xs md:text-sm text-gray-500 font-semibold mb-1">
                           ETA
                         </p>
                         <p className="text-lg md:text-2xl font-black text-orange-300">
@@ -263,7 +261,7 @@ const LobbyTV = () => {
                         </p>
                       </div>
                     </div>
-                    <p className="text-xs md:text-sm text-medical-100 mt-2 md:mt-3 text-left truncate">
+                    <p className="text-xs md:text-sm text-gray-700 mt-2 md:mt-3 text-left truncate">
                       {toTitleCase(patient.name)}
                     </p>
                   </div>
@@ -272,7 +270,7 @@ const LobbyTV = () => {
             </div>
 
             {/* Telugu Translation */}
-            <p className="text-base md:text-lg lg:text-2xl text-medical-300 font-bold mt-4 md:mt-8 tracking-wide">
+            <p className="text-sm md:text-lg lg:text-2xl text-gray-600 font-semibold mt-4 md:mt-8 tracking-wide">
               తరువాతి నంబర్
             </p>
           </div>
