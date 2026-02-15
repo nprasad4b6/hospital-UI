@@ -239,25 +239,21 @@ const LobbyTV = () => {
                   </p>
                 </div>
               ) : (
-                nextPatients.map((patient, index) => (
+                nextPatients.map((patient) => (
                   <div
                     key={patient._id}
                     className="bg-gradient-to-r from-medical-600 to-medical-700 rounded-lg md:rounded-2xl p-3 md:p-6 shadow-xl transform hover:scale-105 transition-all"
                   >
                     <div className="flex items-center justify-between gap-2">
-                      <div className="flex items-center gap-2 md:gap-4 flex-1">
-                        <div className="bg-white text-medical-700 rounded-full w-8 md:w-12 h-8 md:h-12 flex items-center justify-center font-black text-sm md:text-2xl flex-shrink-0">
-                          {index + 1}
-                        </div>
-                        <div className="text-left flex-1 min-w-0">
-                          <p className="text-xs md:text-sm text-medical-200 font-semibold">
-                            POSITION {index + 1}
-                          </p>
-                          <p className="text-2xl md:text-4xl font-black text-yellow-300">
-                            {patient.tokenNumber}
-                          </p>
-                        </div>
+                      <div className="text-left flex-1 min-w-0">
+                        <p className="text-xs md:text-sm text-medical-200 font-semibold">
+                          TOKEN
+                        </p>
+                        <p className="text-2xl md:text-4xl font-black text-yellow-300">
+                          {patient.tokenNumber}
+                        </p>
                       </div>
+
                       <div className="text-right flex-shrink-0">
                         <p className="text-xs md:text-sm text-medical-200 font-semibold mb-1">
                           ETA
