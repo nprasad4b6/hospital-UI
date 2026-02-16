@@ -346,8 +346,12 @@ const AssistantDashboard = () => {
             ) : (
               <div className="bg-white rounded-3xl shadow-lg p-8 text-center border-2 border-dashed border-medical-200">
                 <p className="text-4xl mb-2">👥</p>
-                <p className="text-lg font-bold text-gray-800">No Current Patient</p>
-                <p className="text-gray-600 text-sm mt-2">Queue is empty or all patients are done</p>
+                <p className="text-lg font-bold text-gray-800">
+                  No Current Patient
+                </p>
+                <p className="text-gray-600 text-sm mt-2">
+                  Queue is empty or all patients are done
+                </p>
 
                 <div className="mt-6">
                   <button
@@ -355,7 +359,7 @@ const AssistantDashboard = () => {
                     disabled={isLoading || isBreak}
                     className={`w-full py-3 px-4 rounded-2xl font-bold text-base transition-all transform ${isBreak ? "bg-gray-400 text-gray-600 cursor-not-allowed" : "bg-green-500 hover:bg-green-600 text-white active:scale-95 shadow-lg"}`}
                   >
-                    {isLoading ? 'Processing...' : 'CALL NEXT'}
+                    {isLoading ? "Processing..." : "CALL NEXT"}
                   </button>
 
                   {isBreak && (
@@ -423,8 +427,12 @@ const AssistantDashboard = () => {
                       <div className="flex items-center justify-between">
                         <div className="flex items-center gap-4">
                           <div>
-                            <p className="text-sm text-gray-500 uppercase">Token</p>
-                            <p className="text-2xl font-black text-medical-600">{patient.tokenNumber}</p>
+                            <p className="text-sm text-gray-500 uppercase">
+                              Token
+                            </p>
+                            <p className="text-2xl font-black text-medical-600">
+                              {patient.tokenNumber}
+                            </p>
                           </div>
                         </div>
 

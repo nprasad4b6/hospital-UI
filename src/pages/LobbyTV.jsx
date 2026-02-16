@@ -160,7 +160,9 @@ const LobbyTV = () => {
 
         {/* Date Display */}
         <div className="text-white text-xs md:text-sm font-semibold">
-          {selectedDate === getIstDateString() ? "📆 Today" : `${new Date(selectedDate).toLocaleDateString()}`}
+          {selectedDate === getIstDateString()
+            ? "📆 Today"
+            : `${new Date(selectedDate).toLocaleDateString()}`}
         </div>
       </div>
       {/* Main Content Grid - Responsive */}
@@ -287,10 +289,12 @@ const LobbyTV = () => {
                 className="flex-shrink-0 bg-[#1C7293] rounded-lg md:rounded-xl px-4 md:px-6 lg:px-8 py-2 md:py-3 lg:py-4 whitespace-nowrap min-w-max border border-[#1C7293]"
               >
                 <p className="text-white text-xs md:text-sm lg:text-lg font-bold">
-                  Token: {" "}
+                  Token:{" "}
                   <span className="text-green-900">{patient.tokenNumber}</span>{" "}
-                  • {" "}
-                  <span className="text-green-300">{toTitleCase(patient.name)}</span>
+                  •{" "}
+                  <span className="text-green-300">
+                    {toTitleCase(patient.name)}
+                  </span>
                 </p>
               </div>
             ))}
@@ -308,7 +312,7 @@ const LobbyTV = () => {
       {/* Floating Info Badge - Responsive */}
       <div className="absolute top-3 md:top-4 lg:top-6 right-3 md:right-4 lg:right-6 bg-[#21295C] rounded-full px-3 md:px-4 lg:px-6 py-2 md:py-2 lg:py-3 shadow z-40 border border-[#1C7293]">
         <p className="text-white font-bold text-xs md:text-sm lg:text-lg">
-          Queue Total: {" "}
+          Queue Total:{" "}
           <span className="text-green-900">{allPatients.length}</span>
         </p>
       </div>
