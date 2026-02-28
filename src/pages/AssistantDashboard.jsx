@@ -31,45 +31,30 @@ const AssistantDashboard = () => {
     setTimeout(() => setNotification(""), 3000);
   };
 
-  useEffect(() => {
-    const updateQueueDisplay = (queue) => {
-      if (queue && queue.length > 0) {
-        // Find patient with IN_PROGRESS status
-        const inProgress = queue.find((p) => p.status === "IN_PROGRESS");
+  // update queue state based on server-sent queue
+  const updateQueueDisplay = (queue) => {
+    if (queue && queue.length > 0) {
+      const inProgress = queue.find((p) => p.status === "IN_PROGRESS");
+      setCurrentPatient(inProgress || null);
 
-        // If we have a new current patient, announce them
-        if (inProgress && voiceEnabled && isVoiceSupported) {
-          if (!currentPatient || currentPatient._id !== inProgress._id) {
-            setTimeout(() => {
-              announcePatientCall(inProgress.tokenNumber, inProgress.name);
-            }, 300);
-          }
-        }
-
-        setCurrentPatient(inProgress || null);
-
-        if (showAllByDate) {
-          // show full queue (all statuses) when user requests date-based view
-          setUpcomingPatients(queue);
-        } else {
-          // Get next 5 waiting patients
-          const waiting = queue
-            .filter((p) => p.status === "WAITING")
-            .slice(0, 5);
-          setUpcomingPatients(waiting);
-        }
+      if (showAllByDate) {
+        setUpcomingPatients(queue);
       } else {
-        setCurrentPatient(null);
-        setUpcomingPatients([]);
+        const waiting = queue.filter((p) => p.status === "WAITING").slice(0, 5);
+        setUpcomingPatients(waiting);
       }
-    };
+    } else {
+      setCurrentPatient(null);
+      setUpcomingPatients([]);
+    }
+  };
 
+  useEffect(() => {
     const newSocket = io(SOCKET_SERVER);
     setSocket(newSocket);
 
     newSocket.on("connect", () => {
       console.log("Connected to server - Assistant");
-      // on connect: if user requested a date view, load that date; otherwise load live queue
       if (showAllByDate && selectedDate) {
         newSocket.emit("GET_QUEUE_BY_DATE", selectedDate);
       } else {
@@ -79,6 +64,22 @@ const AssistantDashboard = () => {
 
     newSocket.on("QUEUE_UPDATE", (data) => {
       updateQueueDisplay(data);
+    });
+
+    newSocket.on("PATIENT_REGISTERED", (payload) => {
+      if (payload && payload.queue) {
+        updateQueueDisplay(payload.queue);
+      } else {
+        newSocket.emit("GET_QUEUE");
+      }
+    });
+
+    newSocket.on("PATIENT_STARTED", (payload) => {
+      if (payload && payload.queue) {
+        updateQueueDisplay(payload.queue);
+      } else {
+        newSocket.emit("GET_QUEUE");
+      }
     });
 
     newSocket.on("CONSULTATION_STARTED", () => {
@@ -92,14 +93,7 @@ const AssistantDashboard = () => {
     return () => {
       newSocket.close();
     };
-  }, [
-    currentPatient,
-    voiceEnabled,
-    announcePatientCall,
-    isVoiceSupported,
-    showAllByDate,
-    selectedDate,
-  ]);
+  }, [selectedDate, showAllByDate]);
 
   // Handle date selection change
   const handleDateChange = (e) => {
@@ -134,6 +128,13 @@ const AssistantDashboard = () => {
     setShowAllByDate(true);
     if (socket) socket.emit("GET_QUEUE_BY_DATE", today);
   };
+
+  // announce current patient when it changes
+  useEffect(() => {
+    if (currentPatient && voiceEnabled && isVoiceSupported) {
+      announcePatientCall(currentPatient.tokenNumber, currentPatient.name);
+    }
+  }, [currentPatient, voiceEnabled, isVoiceSupported, announcePatientCall]);
 
   const handleCallNext = () => {
     if (socket && !isLoading) {

@@ -27,35 +27,33 @@ const LobbyTV = () => {
   const { announcePatientCall, isSupported: isVoiceSupported } =
     useQueueVoice();
 
+  // helper that updates all pieces of lobby state based on a queue array
+  const updateLobbyDisplay = (queue) => {
+    setAllPatients(queue);
+
+    if (queue && queue.length > 0) {
+      // Find current patient (IN_PROGRESS)
+      const inProgress = queue.find((p) => p.status === "IN_PROGRESS");
+
+      setCurrentPatient(inProgress || null);
+
+      // Get next 3 waiting patients
+      const waiting = queue.filter((p) => p.status === "WAITING").slice(0, 3);
+      setNextPatients(waiting);
+    } else {
+      setCurrentPatient(null);
+      setNextPatients([]);
+    }
+  };
+
+  // voice announcement effect — runs when currentPatient changes
   useEffect(() => {
-    const updateLobbyDisplay = (queue) => {
-      setAllPatients(queue);
+    if (currentPatient && voiceEnabled && isVoiceSupported) {
+      announcePatientCall(currentPatient.tokenNumber, currentPatient.name);
+    }
+  }, [currentPatient, voiceEnabled, isVoiceSupported, announcePatientCall]);
 
-      if (queue && queue.length > 0) {
-        // Find current patient (IN_PROGRESS)
-        const inProgress = queue.find((p) => p.status === "IN_PROGRESS");
-
-        // If we have a new current patient, announce them
-        if (inProgress && voiceEnabled && isVoiceSupported) {
-          // Only announce if this is different from the previous patient
-          if (!currentPatient || currentPatient._id !== inProgress._id) {
-            setTimeout(() => {
-              announcePatientCall(inProgress.tokenNumber, inProgress.name);
-            }, 500); // Small delay to ensure clean announcement
-          }
-        }
-
-        setCurrentPatient(inProgress || null);
-
-        // Get next 3 waiting patients
-        const waiting = queue.filter((p) => p.status === "WAITING").slice(0, 3);
-        setNextPatients(waiting);
-      } else {
-        setCurrentPatient(null);
-        setNextPatients([]);
-      }
-    };
-
+  useEffect(() => {
     const newSocket = io(SOCKET_SERVER);
     setSocketRef(newSocket);
 
@@ -75,6 +73,26 @@ const LobbyTV = () => {
       fetchFameCount();
     });
 
+    newSocket.on("PATIENT_REGISTERED", (payload) => {
+      // payload may include queue for faster sync
+      if (payload && payload.queue) {
+        updateLobbyDisplay(payload.queue);
+        fetchFameCount();
+      } else {
+        // fall back to asking server
+        newSocket.emit("GET_QUEUE");
+      }
+    });
+
+    newSocket.on("PATIENT_STARTED", (payload) => {
+      if (payload && payload.queue) {
+        updateLobbyDisplay(payload.queue);
+        fetchFameCount();
+      } else {
+        newSocket.emit("GET_QUEUE");
+      }
+    });
+
     newSocket.on("RESET_SUCCESS", (data) => {
       console.log("Queue reset:", data.message);
       updateLobbyDisplay(data.queue);
@@ -87,13 +105,7 @@ const LobbyTV = () => {
     return () => {
       newSocket.close();
     };
-  }, [
-    currentPatient,
-    voiceEnabled,
-    announcePatientCall,
-    isVoiceSupported,
-    selectedDate,
-  ]);
+  }, [selectedDate]);
 
   const fetchFameCount = async () => {
     try {
