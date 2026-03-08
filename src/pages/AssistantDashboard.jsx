@@ -1,12 +1,15 @@
 import React, { useState, useEffect, useRef, useCallback } from "react";
 import { io } from "socket.io-client";
 import axios from "axios";
+import { useNavigate } from "react-router-dom";
 import { useQueueVoice } from "../hooks/useQueueVoice";
 import { toTitleCase } from "../utils/formatters";
+import { auth } from "../firebase";
 
 const SOCKET_SERVER = process.env.REACT_APP_API_URL || "http://localhost:5000";
 
 const AssistantDashboard = () => {
+  const navigate = useNavigate();
   const [currentPatient, setCurrentPatient] = useState(null);
   const [upcomingPatients, setUpcomingPatients] = useState([]);
   // keep entire queue data so we can print all patients for the day
@@ -235,6 +238,16 @@ const AssistantDashboard = () => {
     showNotification(`Doctor ${!isBreak ? "on break" : "back"}`);
   };
 
+  const handleLogout = async () => {
+    try {
+      await auth.signOut();
+      navigate("/login", { replace: true });
+    } catch (error) {
+      console.error("Logout failed:", error);
+      showNotification("Failed to logout");
+    }
+  };
+
   const handleStatusAction = async (
     patientId,
     status,
@@ -371,6 +384,20 @@ const AssistantDashboard = () => {
             </p>
           </div>
           <div className="flex items-center gap-3">
+            <button
+              onClick={() => navigate("/patient-registration")}
+              className="text-xs px-3 py-2 rounded-lg bg-medical-100 text-medical-700 hover:bg-medical-200 font-semibold"
+            >
+              Patient Registration
+            </button>
+
+            <button
+              onClick={() => navigate("/lobby")}
+              className="text-xs px-3 py-2 rounded-lg bg-indigo-100 text-indigo-700 hover:bg-indigo-200 font-semibold"
+            >
+              Lobby Display
+            </button>
+
             {/* Date filter & Show All toggle */}
             <div className="flex items-center gap-2 bg-white px-3 py-1 rounded-lg">
               <label className="text-xs text-gray-700 font-semibold mr-2">
@@ -421,6 +448,13 @@ const AssistantDashboard = () => {
                 </svg>
               </button>
             )}
+
+            <button
+              onClick={handleLogout}
+              className="text-xs px-3 py-2 rounded-lg bg-red-500 text-white hover:bg-red-600 font-semibold"
+            >
+              Logout
+            </button>
           </div>
         </div>
       </div>
