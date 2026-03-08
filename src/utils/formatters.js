@@ -18,7 +18,7 @@ export const maskPhone = (phone) => {
   const firstTwo = phoneStr.substring(0, 2);
   const lastTwo = phoneStr.substring(phoneStr.length - 2);
   const maskCount = Math.max(0, phoneStr.length - 4);
-  const mask = "X".repeat(maskCount);
+  const mask = "x".repeat(maskCount);
 
   return `${firstTwo}${mask}${lastTwo}`;
 };

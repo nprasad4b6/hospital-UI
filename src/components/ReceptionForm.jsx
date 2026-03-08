@@ -1,6 +1,7 @@
 import React, { useState } from "react";
 import { useForm } from "react-hook-form";
 import axios from "axios";
+import { maskPhone } from "../utils/formatters";
 const API_BASE = process.env.REACT_APP_API_URL || "http://localhost:5000";
 
 const ReceptionForm = ({ onPatientAdded }) => {
@@ -13,6 +14,8 @@ const ReceptionForm = ({ onPatientAdded }) => {
     defaultValues: {
       name: "",
       phone: "",
+      age: "",
+      gender: "FEMALE",
       type: "WALK_IN",
     },
   });
@@ -38,6 +41,8 @@ const ReceptionForm = ({ onPatientAdded }) => {
         tokenNumber: response.data.tokenNumber,
         name: response.data.name,
         phone: response.data.phone,
+        age: response.data.age,
+        gender: response.data.gender,
         trackingLink: response.data.trackingLink,
         whatsappSent: response.data.whatsappSent,
       });
@@ -141,7 +146,8 @@ const ReceptionForm = ({ onPatientAdded }) => {
                       : "text-blue-700"
                   }`}
                 >
-                  Token details & tracking link sent to +91{successData.phone}
+                  Token details & tracking link sent to +91
+                  {maskPhone(successData.phone)}
                 </p>
               </div>
             </div>
@@ -238,33 +244,85 @@ const ReceptionForm = ({ onPatientAdded }) => {
               )}
             </div>
 
-            {/* Phone Field */}
-            <div>
-              <label className="block text-sm font-semibold text-gray-700 mb-2">
-                Phone Number
-              </label>
-              <div className="flex items-center border-2 border-gray-200 rounded-lg overflow-hidden focus-within:border-medical-500 transition-colors">
-                <span className="px-4 py-3 bg-gray-100 text-gray-600 font-semibold">
-                  +91
-                </span>
+            {/* Phone + Age Row */}
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+              <div className="sm:col-span-2">
+                <label className="block text-sm font-semibold text-gray-700 mb-2">
+                  Phone Number
+                </label>
+                <div className="flex items-center border-2 border-gray-200 rounded-lg overflow-hidden focus-within:border-medical-500 transition-colors">
+                  <span className="px-4 py-3 bg-gray-100 text-gray-600 font-semibold">
+                    +91
+                  </span>
+                  <input
+                    type="tel"
+                    placeholder="9876543210"
+                    className="flex-1 px-4 py-3 focus:outline-none"
+                    {...register("phone", {
+                      required: "Phone number is required",
+                      pattern: {
+                        value: /^[0-9]{10}$/,
+                        message: "Phone number must be 10 digits",
+                      },
+                    })}
+                  />
+                </div>
+                {errors.phone && (
+                  <p className="text-red-500 text-sm mt-1 flex items-center gap-1">
+                    <span>⚠</span> {errors.phone.message}
+                  </p>
+                )}
+              </div>
+
+              <div>
+                <label className="block text-sm font-semibold text-gray-700 mb-2">
+                  Age
+                </label>
                 <input
-                  type="tel"
-                  placeholder="9876543210"
-                  className="flex-1 px-4 py-3 focus:outline-none"
-                  {...register("phone", {
-                    required: "Phone number is required",
-                    pattern: {
-                      value: /^[0-9]{10}$/,
-                      message: "Phone number must be 10 digits",
-                    },
+                  type="number"
+                  min="0"
+                  max="120"
+                  placeholder="Age"
+                  className="input-field"
+                  {...register("age", {
+                    required: "Age is required",
+                    min: { value: 0, message: "Invalid age" },
+                    max: { value: 120, message: "Invalid age" },
+                    valueAsNumber: true,
                   })}
                 />
+                {errors.age && (
+                  <p className="text-red-500 text-sm mt-1 flex items-center gap-1">
+                    <span>⚠</span> {errors.age.message}
+                  </p>
+                )}
               </div>
-              {errors.phone && (
-                <p className="text-red-500 text-sm mt-1 flex items-center gap-1">
-                  <span>⚠</span> {errors.phone.message}
-                </p>
-              )}
+            </div>
+
+            {/* Gender Field */}
+            <div className="bg-gray-50 rounded-lg p-4 border border-gray-200">
+              <p className="text-sm font-semibold text-gray-700 mb-2">Gender</p>
+              <div className="flex items-center gap-5">
+                <label className="inline-flex items-center gap-2 text-sm text-gray-700">
+                  <input
+                    type="radio"
+                    value="FEMALE"
+                    defaultChecked
+                    className="accent-blue-600"
+                    {...register("gender")}
+                  />
+                  Female
+                </label>
+                <label className="inline-flex items-center gap-2 text-sm text-gray-700">
+                  <input
+                    type="radio"
+                    value="MALE"
+                    className="accent-blue-600"
+                    {...register("gender")}
+                  />
+                  Male
+                </label>
+              </div>
             </div>
 
             {/* Appointment Toggle */}
@@ -302,7 +360,7 @@ const ReceptionForm = ({ onPatientAdded }) => {
             <button
               type="submit"
               disabled={isSubmitting}
-              className={`btn-primary w-full flex items-center justify-center gap-2 ${
+              className={`w-full px-6 py-3 bg-blue-600 text-white font-semibold rounded-lg hover:bg-blue-700 transition-colors duration-200 flex items-center justify-center gap-2 ${
                 isSubmitting ? "opacity-70" : ""
               }`}
             >
@@ -348,25 +406,6 @@ const ReceptionForm = ({ onPatientAdded }) => {
               By registering, you agree to our terms and conditions
             </p>
           </form>
-        </div>
-
-        {/* Info Footer */}
-        <div className="mt-8 grid grid-cols-3 gap-4 text-center">
-          <div className="bg-white rounded-lg p-4 shadow">
-            <p className="text-2xl mb-1">⏱️</p>
-            <p className="text-xs text-gray-600">Avg Wait</p>
-            <p className="text-sm font-bold text-medical-600">15 mins</p>
-          </div>
-          <div className="bg-white rounded-lg p-4 shadow">
-            <p className="text-2xl mb-1">📞</p>
-            <p className="text-xs text-gray-600">Support</p>
-            <p className="text-sm font-bold text-medical-600">24/7</p>
-          </div>
-          <div className="bg-white rounded-lg p-4 shadow">
-            <p className="text-2xl mb-1">✅</p>
-            <p className="text-xs text-gray-600">Confirmed</p>
-            <p className="text-sm font-bold text-medical-600">Queue</p>
-          </div>
         </div>
       </div>
     </div>

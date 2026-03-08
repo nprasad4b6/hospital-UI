@@ -1,13 +1,16 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef, useCallback } from "react";
 import { io } from "socket.io-client";
+import axios from "axios";
 import { useQueueVoice } from "../hooks/useQueueVoice";
-import { toTitleCase, maskPhone } from "../utils/formatters";
+import { toTitleCase } from "../utils/formatters";
 
 const SOCKET_SERVER = process.env.REACT_APP_API_URL || "http://localhost:5000";
 
 const AssistantDashboard = () => {
   const [currentPatient, setCurrentPatient] = useState(null);
   const [upcomingPatients, setUpcomingPatients] = useState([]);
+  // keep entire queue data so we can print all patients for the day
+  const [fullQueue, setFullQueue] = useState([]);
   const [socket, setSocket] = useState(null);
   const [selectedDate, setSelectedDate] = useState(() => {
     // compute IST today
@@ -23,6 +26,9 @@ const AssistantDashboard = () => {
   const [isLoading, setIsLoading] = useState(false);
   const [notification, setNotification] = useState("");
   const [voiceEnabled, setVoiceEnabled] = useState(true);
+  const [expandedCards, setExpandedCards] = useState({});
+  const [undoAction, setUndoAction] = useState(null);
+  const undoTimeoutRef = useRef(null);
   const { announcePatientCall, isSupported: isVoiceSupported } =
     useQueueVoice();
 
@@ -32,7 +38,9 @@ const AssistantDashboard = () => {
   };
 
   // update queue state based on server-sent queue
-  const updateQueueDisplay = (queue) => {
+  const updateQueueDisplay = useCallback((queue) => {
+    // keep a copy of the entire queue (used for printing/export)
+    setFullQueue(queue || []);
     if (queue && queue.length > 0) {
       const inProgress = queue.find((p) => p.status === "IN_PROGRESS");
       setCurrentPatient(inProgress || null);
@@ -47,7 +55,7 @@ const AssistantDashboard = () => {
       setCurrentPatient(null);
       setUpcomingPatients([]);
     }
-  };
+  }, [showAllByDate]);
 
   useEffect(() => {
     const newSocket = io(SOCKET_SERVER);
@@ -93,7 +101,7 @@ const AssistantDashboard = () => {
     return () => {
       newSocket.close();
     };
-  }, [selectedDate, showAllByDate]);
+  }, [selectedDate, showAllByDate, updateQueueDisplay]);
 
   // Handle date selection change
   const handleDateChange = (e) => {
@@ -118,6 +126,8 @@ const AssistantDashboard = () => {
   };
 
   const handleResetToToday = () => {
+    const shouldReset = window.confirm("Reset filter to today's date?");
+    if (!shouldReset) return;
     const IST_OFFSET_MS = 5.5 * 60 * 60 * 1000;
     const ist = new Date(Date.now() + IST_OFFSET_MS);
     const y = ist.getUTCFullYear();
@@ -136,12 +146,75 @@ const AssistantDashboard = () => {
     }
   }, [currentPatient, voiceEnabled, isVoiceSupported, announcePatientCall]);
 
-  const handleCallNext = () => {
-    if (socket && !isLoading) {
-      setIsLoading(true);
-      socket.emit("START_CONSULTATION");
+  const queueRefresh = () => {
+    if (socket) {
+      if (showAllByDate && selectedDate) {
+        socket.emit("GET_QUEUE_BY_DATE", selectedDate);
+      } else {
+        socket.emit("GET_QUEUE");
+      }
+    }
+  };
+
+  const registerUndoAction = (label, operations) => {
+    if (undoTimeoutRef.current) {
+      clearTimeout(undoTimeoutRef.current);
+    }
+
+    setUndoAction({ label, operations });
+    undoTimeoutRef.current = setTimeout(() => {
+      setUndoAction(null);
+    }, 6000);
+  };
+
+  const handleUndo = async () => {
+    if (!undoAction?.operations?.length) return;
+    try {
+      await Promise.all(
+        undoAction.operations.map((op) =>
+          axios.put(`${SOCKET_SERVER}/api/patients/${op.id}/status`, {
+            status: op.from,
+          }),
+        ),
+      );
+      showNotification("Last action undone");
+      setUndoAction(null);
+      queueRefresh();
+    } catch (error) {
+      console.error("Undo failed:", error);
+      showNotification("Failed to undo action");
+    }
+  };
+
+  const handleCallNext = async () => {
+    if (!socket || isLoading) return;
+
+    const currentInProgress = fullQueue.find((p) => p.status === "IN_PROGRESS");
+    const nextWaiting = fullQueue
+      .filter((p) => p.status === "WAITING")
+      .sort((a, b) => (a.position ?? 9999) - (b.position ?? 9999))[0];
+
+    setIsLoading(true);
+    try {
+      await axios.post(`${SOCKET_SERVER}/api/start-consultation`, {});
       showNotification("Calling next patient...");
-      setTimeout(() => setIsLoading(false), 1000);
+
+      const ops = [];
+      if (currentInProgress?._id) {
+        ops.push({ id: currentInProgress._id, from: "IN_PROGRESS", to: "DONE" });
+      }
+      if (nextWaiting?._id) {
+        ops.push({ id: nextWaiting._id, from: "WAITING", to: "IN_PROGRESS" });
+      }
+      if (ops.length) {
+        registerUndoAction("Call Next", ops);
+      }
+      queueRefresh();
+    } catch (error) {
+      console.error("Call next failed:", error);
+      showNotification("Failed to call next patient");
+    } finally {
+      setIsLoading(false);
     }
   };
 
@@ -151,6 +224,121 @@ const AssistantDashboard = () => {
       socket.emit("DOCTOR_BREAK_STATUS", { isOnBreak: !isBreak });
     }
     showNotification(`Doctor ${!isBreak ? "on break" : "back"}`);
+  };
+
+  const handleStatusAction = async (
+    patientId,
+    status,
+    message,
+    previousStatus,
+    options = {},
+  ) => {
+    const { confirmMessage = "", enableUndo = true } = options;
+
+    if (confirmMessage) {
+      const confirmed = window.confirm(confirmMessage);
+      if (!confirmed) return;
+    }
+
+    try {
+      await axios.put(`${SOCKET_SERVER}/api/patients/${patientId}/status`, {
+        status,
+      });
+      showNotification(message);
+
+      if (enableUndo && previousStatus && previousStatus !== status) {
+        registerUndoAction(message, [
+          {
+            id: patientId,
+            from: previousStatus,
+            to: status,
+          },
+        ]);
+      }
+
+      queueRefresh();
+    } catch (error) {
+      console.error("Status update failed:", error);
+      showNotification("Failed to update patient status");
+    }
+  };
+
+  useEffect(() => {
+    return () => {
+      if (undoTimeoutRef.current) {
+        clearTimeout(undoTimeoutRef.current);
+      }
+    };
+  }, []);
+
+  const waitingSkippedPatients = fullQueue.filter(
+    (p) => p.status === "WAITING" || p.status === "SKIPPED" || p.status === "ON_HOLD",
+  );
+
+  const togglePatientInfo = (patientId) => {
+    setExpandedCards((prev) => ({
+      ...prev,
+      [patientId]: !prev[patientId],
+    }));
+  };
+
+  const normalizedNameCount = upcomingPatients.reduce((acc, patient) => {
+    const key = String(patient?.name || "").trim().toLowerCase();
+    if (!key) return acc;
+    acc[key] = (acc[key] || 0) + 1;
+    return acc;
+  }, {});
+
+  useEffect(() => {
+    // Auto-expand cards with duplicate names so assistant can verify details immediately
+    const duplicateIds = upcomingPatients
+      .filter((patient) => {
+        const key = String(patient?.name || "").trim().toLowerCase();
+        return key && normalizedNameCount[key] > 1;
+      })
+      .map((patient) => patient._id)
+      .filter(Boolean);
+
+    if (duplicateIds.length === 0) return;
+
+    setExpandedCards((prev) => {
+      const next = { ...prev };
+      duplicateIds.forEach((id) => {
+        if (next[id] === undefined) {
+          next[id] = true;
+        }
+      });
+      return next;
+    });
+  }, [upcomingPatients, normalizedNameCount]);
+
+  /**
+   * Print all patients currently loaded in `fullQueue`.
+   * Opens a new window with a simple table, then invokes the browser
+   * print dialog. The caller can print or save as PDF.
+   */
+  const handlePrint = () => {
+    if (!fullQueue || fullQueue.length === 0) {
+      showNotification("No patients to print");
+      return;
+    }
+
+    const printWindow = window.open("", "_blank");
+    if (!printWindow) return;
+
+    const title = `Patients for ${selectedDate}`;
+    let html = `<html><head><title>${title}</title><style>table{width:100%;border-collapse:collapse;}th,td{border:1px solid #444;padding:4px;text-align:left;}</style></head><body>`;
+    html += `<h2>${title}</h2>`;
+    html += `<table><tr><th>Token</th><th>Name</th><th>Phone</th><th>Status</th><th>Type</th></tr>`;
+    fullQueue.forEach((p) => {
+      html += `<tr><td>${p.tokenNumber}</td><td>${p.name}</td><td>${p.phone}</td><td>${p.status}</td><td>${p.type}</td></tr>`;
+    });
+    html += `</table></body></html>`;
+
+    printWindow.document.write(html);
+    printWindow.document.close();
+    printWindow.focus();
+    printWindow.print();
   };
 
   return (
@@ -183,6 +371,13 @@ const AssistantDashboard = () => {
                 className={`ml-3 text-xs px-2 py-1 rounded whitespace-nowrap min-w-[90px] ${showAllByDate ? "bg-blue-500 text-white" : "bg-gray-100 text-gray-700"}`}
               >
                 {showAllByDate ? "Showing All" : "Show All"}
+              </button>
+              <button
+                onClick={handlePrint}
+                className="ml-2 text-xs px-2 py-1 rounded bg-green-500 text-white hover:bg-green-600"
+                title="Print patient list for selected date"
+              >
+                Print
               </button>
             </div>
 
@@ -282,7 +477,13 @@ const AssistantDashboard = () => {
                     <div>
                       <p className="text-xs opacity-75">PHONE</p>
                       <p className="text-sm font-semibold">
-                        {maskPhone(currentPatient.phone)}
+                        {currentPatient.phone}
+                      </p>
+                    </div>
+                    <div>
+                      <p className="text-xs opacity-75">AGE / GENDER</p>
+                      <p className="text-sm font-semibold">
+                        {currentPatient.age ?? "-"} / {currentPatient.gender || "FEMALE"}
                       </p>
                     </div>
                     <div>
@@ -338,6 +539,45 @@ const AssistantDashboard = () => {
                   )}
                 </button>
 
+                <div className="grid grid-cols-2 gap-3 mt-3">
+                  <button
+                    onClick={() =>
+                      handleStatusAction(
+                        currentPatient._id,
+                        "SKIPPED",
+                        "Patient moved to skipped list",
+                        currentPatient.status,
+                        {
+                          confirmMessage:
+                            "Skip current patient? You can undo this for a few seconds.",
+                        },
+                      )
+                    }
+                    disabled={isLoading || isBreak}
+                    className="py-3 px-3 rounded-xl font-bold text-sm bg-yellow-500 hover:bg-yellow-600 text-white disabled:opacity-60"
+                  >
+                    Skip
+                  </button>
+                  <button
+                    onClick={() =>
+                      handleStatusAction(
+                        currentPatient._id,
+                        "ON_HOLD",
+                        "Patient sent for test (On Hold)",
+                        currentPatient.status,
+                        {
+                          confirmMessage:
+                            "Mark current patient as Sent for Test (On Hold)?",
+                        },
+                      )
+                    }
+                    disabled={isLoading || isBreak}
+                    className="py-3 px-3 rounded-xl font-bold text-sm bg-orange-500 hover:bg-orange-600 text-white disabled:opacity-60"
+                  >
+                    Sent for Test
+                  </button>
+                </div>
+
                 {isBreak && (
                   <p className="text-center text-yellow-200 text-xs font-semibold mt-3">
                     ⏸ Doctor is on break - Resume to call next patient
@@ -368,6 +608,21 @@ const AssistantDashboard = () => {
                       ⏸ Doctor is on break - Resume to call next patient
                     </p>
                   )}
+
+                  <div className="grid grid-cols-2 gap-3 mt-3">
+                    <button
+                      disabled
+                      className="py-3 px-3 rounded-xl font-bold text-sm bg-yellow-300 text-white opacity-60 cursor-not-allowed"
+                    >
+                      Skip
+                    </button>
+                    <button
+                      disabled
+                      className="py-3 px-3 rounded-xl font-bold text-sm bg-orange-300 text-white opacity-60 cursor-not-allowed"
+                    >
+                      Sent for Test
+                    </button>
+                  </div>
                 </div>
               </div>
             )}
@@ -409,6 +664,13 @@ const AssistantDashboard = () => {
                       >
                         Today
                       </button>
+                      <button
+                        onClick={handlePrint}
+                        className="ml-2 text-xs px-2 py-1 rounded bg-green-500 text-white hover:bg-green-600"
+                        title="Print patient list for selected date"
+                      >
+                        Print
+                      </button>
                     </div>
                   </div>
                 </div>
@@ -420,10 +682,23 @@ const AssistantDashboard = () => {
                     No upcoming patients
                   </div>
                 ) : (
-                  upcomingPatients.map((patient, index) => (
+                  upcomingPatients.map((patient) => {
+                    const nameKey = String(patient?.name || "")
+                      .trim()
+                      .toLowerCase();
+                    const hasDuplicateName = nameKey
+                      ? normalizedNameCount[nameKey] > 1
+                      : false;
+                    const isExpanded = !!expandedCards[patient._id];
+
+                    return (
                     <div
                       key={patient._id}
-                      className="p-4 rounded-xl border border-gray-100 hover:shadow-md transition-all"
+                      className={`p-4 rounded-xl border hover:shadow-md transition-all ${
+                        hasDuplicateName
+                          ? "border-amber-300 bg-amber-50"
+                          : "border-gray-100"
+                      }`}
                     >
                       <div className="flex items-center justify-between">
                         <div className="flex items-center gap-4">
@@ -437,11 +712,40 @@ const AssistantDashboard = () => {
                           </div>
                         </div>
 
-                        <div className="text-right">
-                          <p className="text-xs text-gray-500">ETA</p>
-                          <p className="text-lg font-bold text-orange-600">
-                            {patient.estimatedWaitTime} min
-                          </p>
+                        <div className="text-right flex items-center gap-2">
+                          {hasDuplicateName && (
+                            <span
+                              className="text-amber-600 text-xs font-bold"
+                              title="Duplicate name in queue"
+                            >
+                              ⚠ Same name
+                            </span>
+                          )}
+                          <button
+                            onClick={() => togglePatientInfo(patient._id)}
+                            className="text-xs px-2 py-1 rounded bg-blue-100 text-blue-700 font-semibold hover:bg-blue-200"
+                          >
+                            {isExpanded ? "Hide" : "Info"}
+                          </button>
+                          <select
+                            value={patient.status}
+                            onChange={(e) =>
+                              handleStatusAction(
+                                patient._id,
+                                e.target.value,
+                                "Patient status updated",
+                                patient.status,
+                                { enableUndo: true },
+                              )
+                            }
+                            className="text-xs px-2 py-1 rounded border border-gray-200 bg-white"
+                            title="Manual status override"
+                          >
+                            <option value="WAITING">Waiting</option>
+                            <option value="IN_PROGRESS">In-Progress</option>
+                            <option value="ON_HOLD">On-Hold</option>
+                            <option value="SKIPPED">Skipped</option>
+                          </select>
                         </div>
                       </div>
 
@@ -450,9 +754,23 @@ const AssistantDashboard = () => {
                           <p className="text-sm font-bold text-gray-800">
                             {toTitleCase(patient.name)}
                           </p>
-                          <p className="text-xs text-gray-600 mt-1">
-                            📞 {maskPhone(patient.phone)}
-                          </p>
+                          <p className="text-xs text-gray-600 mt-1">📞 {patient.phone}</p>
+                          {isExpanded && (
+                            <div className="mt-2 text-xs text-gray-700 space-y-1">
+                              <p>
+                                <span className="font-semibold">Full Phone:</span>{" "}
+                                {patient.phone}
+                              </p>
+                              <p>
+                                <span className="font-semibold">Age:</span>{" "}
+                                {patient.age ?? "-"}
+                              </p>
+                              <p>
+                                <span className="font-semibold">Gender:</span>{" "}
+                                {patient.gender || "FEMALE"}
+                              </p>
+                            </div>
+                          )}
                         </div>
 
                         <div className="flex flex-col items-end gap-2">
@@ -467,13 +785,109 @@ const AssistantDashboard = () => {
                         </div>
                       </div>
                     </div>
-                  ))
+                    );
+                  })
                 )}
               </div>
             </div>
           </div>
         </div>
+
+        {/* Waiting / Skipped / On Hold Re-entry Section */}
+        <div className="mt-6 bg-white rounded-2xl shadow-lg p-4">
+          <h3 className="text-lg font-bold text-gray-800 mb-1">
+            🧾 Waiting / Skipped / On Hold
+          </h3>
+          <p className="text-xs text-gray-600 mb-3">
+            Re-add patients when they return from tests or arrive late
+          </p>
+
+          {waitingSkippedPatients.length === 0 ? (
+            <p className="text-sm text-gray-500">No patients in this section</p>
+          ) : (
+            <div className="space-y-2 max-h-56 overflow-y-auto pr-1">
+              {waitingSkippedPatients.map((patient) => {
+                const statusColor =
+                  patient.status === "ON_HOLD"
+                    ? "bg-orange-100 text-orange-700"
+                    : patient.status === "SKIPPED"
+                      ? "bg-yellow-100 text-yellow-700"
+                      : "bg-blue-100 text-blue-700";
+
+                return (
+                  <div
+                    key={`reentry-${patient._id}`}
+                    className="flex items-center justify-between border rounded-lg p-3"
+                  >
+                    <div>
+                      <p className="text-sm font-bold text-gray-800">
+                        {toTitleCase(patient.name)} (#{patient.tokenNumber})
+                      </p>
+                      <p className="text-xs text-gray-600">{patient.phone}</p>
+                    </div>
+
+                    <div className="flex items-center gap-2">
+                      <span
+                        className={`text-xs font-bold px-2 py-1 rounded ${statusColor}`}
+                      >
+                        {patient.status === "ON_HOLD" ? "ON HOLD" : patient.status}
+                      </span>
+
+                      {(patient.status === "SKIPPED" || patient.status === "ON_HOLD") && (
+                        <button
+                          onClick={() =>
+                            handleStatusAction(
+                              patient._id,
+                              "WAITING",
+                              "Patient re-added to queue",
+                              patient.status,
+                            )
+                          }
+                          className="text-xs px-2 py-1 rounded bg-green-500 hover:bg-green-600 text-white font-semibold"
+                        >
+                          Re-add to Queue
+                        </button>
+                      )}
+
+                      <select
+                        value={patient.status}
+                        onChange={(e) =>
+                          handleStatusAction(
+                            patient._id,
+                            e.target.value,
+                            "Patient status updated",
+                            patient.status,
+                            { enableUndo: true },
+                          )
+                        }
+                        className="text-xs px-2 py-1 rounded border border-gray-200 bg-white"
+                        title="Manual status override"
+                      >
+                        <option value="WAITING">Waiting</option>
+                        <option value="IN_PROGRESS">In-Progress</option>
+                        <option value="ON_HOLD">On-Hold</option>
+                        <option value="SKIPPED">Skipped</option>
+                      </select>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
       </div>
+
+      {undoAction && (
+        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 bg-gray-900 text-white px-4 py-3 rounded-xl shadow-lg flex items-center gap-3">
+          <span className="text-sm">{undoAction.label} applied</span>
+          <button
+            onClick={handleUndo}
+            className="text-sm font-bold px-3 py-1 rounded bg-blue-500 hover:bg-blue-600"
+          >
+            Undo
+          </button>
+        </div>
+      )}
 
       {/* Bottom Safe Area Padding */}
       <div className="h-10" />
