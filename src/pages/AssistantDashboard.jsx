@@ -38,24 +38,29 @@ const AssistantDashboard = () => {
   };
 
   // update queue state based on server-sent queue
-  const updateQueueDisplay = useCallback((queue) => {
-    // keep a copy of the entire queue (used for printing/export)
-    setFullQueue(queue || []);
-    if (queue && queue.length > 0) {
-      const inProgress = queue.find((p) => p.status === "IN_PROGRESS");
-      setCurrentPatient(inProgress || null);
+  const updateQueueDisplay = useCallback(
+    (queue) => {
+      // keep a copy of the entire queue (used for printing/export)
+      setFullQueue(queue || []);
+      if (queue && queue.length > 0) {
+        const inProgress = queue.find((p) => p.status === "IN_PROGRESS");
+        setCurrentPatient(inProgress || null);
 
-      if (showAllByDate) {
-        setUpcomingPatients(queue);
+        if (showAllByDate) {
+          setUpcomingPatients(queue);
+        } else {
+          const waiting = queue
+            .filter((p) => p.status === "WAITING")
+            .slice(0, 5);
+          setUpcomingPatients(waiting);
+        }
       } else {
-        const waiting = queue.filter((p) => p.status === "WAITING").slice(0, 5);
-        setUpcomingPatients(waiting);
+        setCurrentPatient(null);
+        setUpcomingPatients([]);
       }
-    } else {
-      setCurrentPatient(null);
-      setUpcomingPatients([]);
-    }
-  }, [showAllByDate]);
+    },
+    [showAllByDate],
+  );
 
   useEffect(() => {
     const newSocket = io(SOCKET_SERVER);
@@ -201,7 +206,11 @@ const AssistantDashboard = () => {
 
       const ops = [];
       if (currentInProgress?._id) {
-        ops.push({ id: currentInProgress._id, from: "IN_PROGRESS", to: "DONE" });
+        ops.push({
+          id: currentInProgress._id,
+          from: "IN_PROGRESS",
+          to: "DONE",
+        });
       }
       if (nextWaiting?._id) {
         ops.push({ id: nextWaiting._id, from: "WAITING", to: "IN_PROGRESS" });
@@ -272,7 +281,10 @@ const AssistantDashboard = () => {
   }, []);
 
   const waitingSkippedPatients = fullQueue.filter(
-    (p) => p.status === "WAITING" || p.status === "SKIPPED" || p.status === "ON_HOLD",
+    (p) =>
+      p.status === "WAITING" ||
+      p.status === "SKIPPED" ||
+      p.status === "ON_HOLD",
   );
 
   const togglePatientInfo = (patientId) => {
@@ -283,7 +295,9 @@ const AssistantDashboard = () => {
   };
 
   const normalizedNameCount = upcomingPatients.reduce((acc, patient) => {
-    const key = String(patient?.name || "").trim().toLowerCase();
+    const key = String(patient?.name || "")
+      .trim()
+      .toLowerCase();
     if (!key) return acc;
     acc[key] = (acc[key] || 0) + 1;
     return acc;
@@ -293,7 +307,9 @@ const AssistantDashboard = () => {
     // Auto-expand cards with duplicate names so assistant can verify details immediately
     const duplicateIds = upcomingPatients
       .filter((patient) => {
-        const key = String(patient?.name || "").trim().toLowerCase();
+        const key = String(patient?.name || "")
+          .trim()
+          .toLowerCase();
         return key && normalizedNameCount[key] > 1;
       })
       .map((patient) => patient._id)
@@ -483,7 +499,8 @@ const AssistantDashboard = () => {
                     <div>
                       <p className="text-xs opacity-75">AGE / GENDER</p>
                       <p className="text-sm font-semibold">
-                        {currentPatient.age ?? "-"} / {currentPatient.gender || "FEMALE"}
+                        {currentPatient.age ?? "-"} /{" "}
+                        {currentPatient.gender || "FEMALE"}
                       </p>
                     </div>
                     <div>
@@ -692,99 +709,103 @@ const AssistantDashboard = () => {
                     const isExpanded = !!expandedCards[patient._id];
 
                     return (
-                    <div
-                      key={patient._id}
-                      className={`p-4 rounded-xl border hover:shadow-md transition-all ${
-                        hasDuplicateName
-                          ? "border-amber-300 bg-amber-50"
-                          : "border-gray-100"
-                      }`}
-                    >
-                      <div className="flex items-center justify-between">
-                        <div className="flex items-center gap-4">
-                          <div>
-                            <p className="text-sm text-gray-500 uppercase">
-                              Token
-                            </p>
-                            <p className="text-2xl font-black text-medical-600">
-                              {patient.tokenNumber}
-                            </p>
+                      <div
+                        key={patient._id}
+                        className={`p-4 rounded-xl border hover:shadow-md transition-all ${
+                          hasDuplicateName
+                            ? "border-amber-300 bg-amber-50"
+                            : "border-gray-100"
+                        }`}
+                      >
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center gap-4">
+                            <div>
+                              <p className="text-sm text-gray-500 uppercase">
+                                Token
+                              </p>
+                              <p className="text-2xl font-black text-medical-600">
+                                {patient.tokenNumber}
+                              </p>
+                            </div>
+                          </div>
+
+                          <div className="text-right flex items-center gap-2">
+                            {hasDuplicateName && (
+                              <span
+                                className="text-amber-600 text-xs font-bold"
+                                title="Duplicate name in queue"
+                              >
+                                ⚠ Same name
+                              </span>
+                            )}
+                            <button
+                              onClick={() => togglePatientInfo(patient._id)}
+                              className="text-xs px-2 py-1 rounded bg-blue-100 text-blue-700 font-semibold hover:bg-blue-200"
+                            >
+                              {isExpanded ? "Hide" : "Info"}
+                            </button>
+                            <select
+                              value={patient.status}
+                              onChange={(e) =>
+                                handleStatusAction(
+                                  patient._id,
+                                  e.target.value,
+                                  "Patient status updated",
+                                  patient.status,
+                                  { enableUndo: true },
+                                )
+                              }
+                              className="text-xs px-2 py-1 rounded border border-gray-200 bg-white"
+                              title="Manual status override"
+                            >
+                              <option value="WAITING">Waiting</option>
+                              <option value="IN_PROGRESS">In-Progress</option>
+                              <option value="ON_HOLD">On-Hold</option>
+                              <option value="SKIPPED">Skipped</option>
+                            </select>
                           </div>
                         </div>
 
-                        <div className="text-right flex items-center gap-2">
-                          {hasDuplicateName && (
+                        <div className="mt-3 pt-3 border-t flex items-center justify-between">
+                          <div>
+                            <p className="text-sm font-bold text-gray-800">
+                              {toTitleCase(patient.name)}
+                            </p>
+                            <p className="text-xs text-gray-600 mt-1">
+                              📞 {patient.phone}
+                            </p>
+                            {isExpanded && (
+                              <div className="mt-2 text-xs text-gray-700 space-y-1">
+                                <p>
+                                  <span className="font-semibold">
+                                    Full Phone:
+                                  </span>{" "}
+                                  {patient.phone}
+                                </p>
+                                <p>
+                                  <span className="font-semibold">Age:</span>{" "}
+                                  {patient.age ?? "-"}
+                                </p>
+                                <p>
+                                  <span className="font-semibold">Gender:</span>{" "}
+                                  {patient.gender || "FEMALE"}
+                                </p>
+                              </div>
+                            )}
+                          </div>
+
+                          <div className="flex flex-col items-end gap-2">
                             <span
-                              className="text-amber-600 text-xs font-bold"
-                              title="Duplicate name in queue"
+                              className={`text-xs font-bold px-2 py-1 rounded ${patient.type === "BOOKED" ? "bg-blue-100 text-blue-800" : "bg-purple-100 text-purple-800"}`}
                             >
-                              ⚠ Same name
+                              {patient.type}
                             </span>
-                          )}
-                          <button
-                            onClick={() => togglePatientInfo(patient._id)}
-                            className="text-xs px-2 py-1 rounded bg-blue-100 text-blue-700 font-semibold hover:bg-blue-200"
-                          >
-                            {isExpanded ? "Hide" : "Info"}
-                          </button>
-                          <select
-                            value={patient.status}
-                            onChange={(e) =>
-                              handleStatusAction(
-                                patient._id,
-                                e.target.value,
-                                "Patient status updated",
-                                patient.status,
-                                { enableUndo: true },
-                              )
-                            }
-                            className="text-xs px-2 py-1 rounded border border-gray-200 bg-white"
-                            title="Manual status override"
-                          >
-                            <option value="WAITING">Waiting</option>
-                            <option value="IN_PROGRESS">In-Progress</option>
-                            <option value="ON_HOLD">On-Hold</option>
-                            <option value="SKIPPED">Skipped</option>
-                          </select>
+                            <span className="text-xs font-bold px-2 py-1 rounded bg-medical-100 text-medical-800">
+                              Position: {patient.position}
+                            </span>
+                          </div>
                         </div>
                       </div>
-
-                      <div className="mt-3 pt-3 border-t flex items-center justify-between">
-                        <div>
-                          <p className="text-sm font-bold text-gray-800">
-                            {toTitleCase(patient.name)}
-                          </p>
-                          <p className="text-xs text-gray-600 mt-1">📞 {patient.phone}</p>
-                          {isExpanded && (
-                            <div className="mt-2 text-xs text-gray-700 space-y-1">
-                              <p>
-                                <span className="font-semibold">Full Phone:</span>{" "}
-                                {patient.phone}
-                              </p>
-                              <p>
-                                <span className="font-semibold">Age:</span>{" "}
-                                {patient.age ?? "-"}
-                              </p>
-                              <p>
-                                <span className="font-semibold">Gender:</span>{" "}
-                                {patient.gender || "FEMALE"}
-                              </p>
-                            </div>
-                          )}
-                        </div>
-
-                        <div className="flex flex-col items-end gap-2">
-                          <span
-                            className={`text-xs font-bold px-2 py-1 rounded ${patient.type === "BOOKED" ? "bg-blue-100 text-blue-800" : "bg-purple-100 text-purple-800"}`}
-                          >
-                            {patient.type}
-                          </span>
-                          <span className="text-xs font-bold px-2 py-1 rounded bg-medical-100 text-medical-800">
-                            Position: {patient.position}
-                          </span>
-                        </div>
-                      </div>
-                    </div>
                     );
                   })
                 )}
@@ -830,10 +851,13 @@ const AssistantDashboard = () => {
                       <span
                         className={`text-xs font-bold px-2 py-1 rounded ${statusColor}`}
                       >
-                        {patient.status === "ON_HOLD" ? "ON HOLD" : patient.status}
+                        {patient.status === "ON_HOLD"
+                          ? "ON HOLD"
+                          : patient.status}
                       </span>
 
-                      {(patient.status === "SKIPPED" || patient.status === "ON_HOLD") && (
+                      {(patient.status === "SKIPPED" ||
+                        patient.status === "ON_HOLD") && (
                         <button
                           onClick={() =>
                             handleStatusAction(

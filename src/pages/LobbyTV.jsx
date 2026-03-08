@@ -205,7 +205,6 @@ const LobbyTV = () => {
           </div>
         </div>
       </div>
-
     </div>
   );
 };
