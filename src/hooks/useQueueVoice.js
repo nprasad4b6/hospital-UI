@@ -1,4 +1,4 @@
-import { useRef, useCallback } from "react";
+import { useRef, useCallback, useEffect } from "react";
 
 /**
  * Custom hook for voice announcements in the queue system
@@ -15,7 +15,7 @@ const TELUGU_NUMBERS = {
   5: "ఐదు",
   6: "ఆరు",
   7: "ఏడు",
-  8: "ఎight",
+  8: "ఎనిమిది",
   9: "తొమ్మిది",
   10: "పది",
   11: "పదకొండు",
@@ -25,7 +25,7 @@ const TELUGU_NUMBERS = {
   15: "పదిహేను",
   16: "పదహారు",
   17: "పదిఏడు",
-  18: "పదిఎight",
+  18: "పద్దెనిమిది",
   19: "పందొమ్మిది",
   20: "ఇరవై",
   21: "ఇరవై ఒకటి",
@@ -35,7 +35,7 @@ const TELUGU_NUMBERS = {
   25: "ఇరవై ఐదు",
   26: "ఇరవై ఆరు",
   27: "ఇరవై ఏడు",
-  28: "ఇరవై ఎight",
+  28: "ఇరవై ఎనిమిది",
   29: "ఇరవై తొమ్మిది",
   30: "ముప్పై",
   31: "ముప్పై ఒకటి",
@@ -45,7 +45,7 @@ const TELUGU_NUMBERS = {
   35: "ముప్పై ఐదు",
   36: "ముప్పై ఆరు",
   37: "ముప్పై ఏడు",
-  38: "ముప్పై ఎight",
+  38: "ముప్పై ఎనిమిది",
   39: "ముప్పై తొమ్మిది",
   40: "నలభై",
   41: "నలభై ఒకటి",
@@ -55,7 +55,7 @@ const TELUGU_NUMBERS = {
   45: "నలభై ఐదు",
   46: "నలభై ఆరు",
   47: "నలభై ఏడు",
-  48: "నలభై ఎight",
+  48: "నలభై ఎనిమిది",
   49: "నలభై తొమ్మిది",
   50: "యాభై",
 };
@@ -63,6 +63,7 @@ const TELUGU_NUMBERS = {
 export const useQueueVoice = () => {
   const utteranceRef = useRef(null);
   const hasSpokenRef = useRef({});
+  const selectedVoiceRef = useRef(null);
 
   /**
    * Find the best available voice for Telugu speech synthesis
@@ -73,22 +74,50 @@ export const useQueueVoice = () => {
 
     const voices = window.speechSynthesis.getVoices();
 
-    // Try to find Telugu (India) voice first
+    // Prefer explicit Telugu voices by language or voice name.
     const teluguInVoice = voices.find(
-      (voice) => voice.lang && voice.lang.includes("te"),
+      (voice) =>
+        (voice.lang && /^te(-|$)/i.test(voice.lang)) ||
+        /telugu/i.test(voice.name || ""),
     );
     if (teluguInVoice) return teluguInVoice;
 
-    // Fallback to first available voice
-    return voices.length > 0 ? voices[0] : null;
+    return null;
   }, []);
+
+  const loadPreferredVoice = useCallback(() => {
+    if (!window.speechSynthesis) return;
+    selectedVoiceRef.current = findTeluguVoice();
+  }, [findTeluguVoice]);
+
+  useEffect(() => {
+    if (!window.speechSynthesis) return;
+
+    loadPreferredVoice();
+
+    const handleVoicesChanged = () => {
+      loadPreferredVoice();
+    };
+
+    window.speechSynthesis.onvoiceschanged = handleVoicesChanged;
+
+    return () => {
+      if (window.speechSynthesis) {
+        window.speechSynthesis.onvoiceschanged = null;
+      }
+    };
+  }, [loadPreferredVoice]);
 
   /**
    * Get Telugu number word for a given token number
    * Falls back to the English number if mapping doesn't exist
    */
   const getTeluguNumber = useCallback((tokenNumber) => {
-    return TELUGU_NUMBERS[tokenNumber] || tokenNumber.toString();
+    const num = Number(tokenNumber);
+    if (!Number.isFinite(num)) {
+      return String(tokenNumber || "");
+    }
+    return TELUGU_NUMBERS[num] || String(num);
   }, []);
 
   /**
@@ -114,22 +143,35 @@ export const useQueueVoice = () => {
       }
       hasSpokenRef.current[tokenNumber] = true;
 
-      // Get Telugu number
-      const teluguNumber = getTeluguNumber(tokenNumber);
+      const numericToken = Number(tokenNumber);
+      const normalizedToken = Number.isFinite(numericToken)
+        ? Math.trunc(numericToken)
+        : null;
+      const teluguNumber = getTeluguNumber(
+        normalizedToken !== null ? normalizedToken : tokenNumber,
+      );
+      const englishToken =
+        normalizedToken !== null
+          ? String(normalizedToken)
+          : String(tokenNumber || "0");
+      const safeName = String(patientName || "Patient").trim() || "Patient";
 
-      // Simple format: టోకెన్ నంబర్ [నంబర్]. [పేరు] గారు.
-      const message = `టోకెన్ నంబర్ ${teluguNumber}. ${patientName} గారు.`;
+      const teluguVoice = selectedVoiceRef.current || findTeluguVoice();
+      // Use Telugu phrase only with Telugu voice; otherwise use English numeric token
+      // so token number is always spoken clearly.
+      const message = teluguVoice
+        ? `టోకెన్ నంబర్ ${teluguNumber}. ${safeName} గారు.`
+        : `Token number ${englishToken}. ${safeName} garu.`;
 
-      console.log("Announcing (Telugu):", message);
+      console.log("Announcing patient:", message);
 
       const utterance = new SpeechSynthesisUtterance(message);
-      utterance.lang = "te-IN";
+      utterance.lang = teluguVoice ? "te-IN" : "en-IN";
       utterance.rate = 0.8;
       utterance.pitch = 1.0;
       utterance.volume = 1.0;
 
-      // Try to select Telugu voice
-      const teluguVoice = findTeluguVoice();
+      // Auto-select Telugu voice whenever available.
       if (teluguVoice) {
         utterance.voice = teluguVoice;
       }

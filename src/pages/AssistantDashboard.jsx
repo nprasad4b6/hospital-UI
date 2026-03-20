@@ -1,7 +1,14 @@
-import React, { useState, useEffect, useRef, useCallback } from "react";
+import React, {
+  useState,
+  useEffect,
+  useRef,
+  useCallback,
+  useMemo,
+} from "react";
 import { io } from "socket.io-client";
 import axios from "axios";
 import { useNavigate } from "react-router-dom";
+import { Zap } from "lucide-react";
 import { useQueueVoice } from "../hooks/useQueueVoice";
 import { toTitleCase } from "../utils/formatters";
 import { auth } from "../firebase";
@@ -25,6 +32,9 @@ const AssistantDashboard = () => {
     return `${y}-${m}-${d}`;
   });
   const [showAllByDate, setShowAllByDate] = useState(false);
+  const [showLastThreeMonths, setShowLastThreeMonths] = useState(false);
+  const [patientSearch, setPatientSearch] = useState("");
+  const [historyPatients, setHistoryPatients] = useState([]);
   const [isBreak, setIsBreak] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [notification, setNotification] = useState("");
@@ -35,10 +45,21 @@ const AssistantDashboard = () => {
   const { announcePatientCall, isSupported: isVoiceSupported } =
     useQueueVoice();
 
-  const showNotification = (msg) => {
+  const istToday = useMemo(() => {
+    const IST_OFFSET_MS = 5.5 * 60 * 60 * 1000;
+    const ist = new Date(Date.now() + IST_OFFSET_MS);
+    const y = ist.getUTCFullYear();
+    const m = String(ist.getUTCMonth() + 1).padStart(2, "0");
+    const d = String(ist.getUTCDate()).padStart(2, "0");
+    return `${y}-${m}-${d}`;
+  }, []);
+
+  const isTodayView = !showLastThreeMonths && selectedDate === istToday;
+
+  const showNotification = useCallback((msg) => {
     setNotification(msg);
     setTimeout(() => setNotification(""), 3000);
-  };
+  }, []);
 
   // update queue state based on server-sent queue
   const updateQueueDisplay = useCallback(
@@ -109,7 +130,7 @@ const AssistantDashboard = () => {
     return () => {
       newSocket.close();
     };
-  }, [selectedDate, showAllByDate, updateQueueDisplay]);
+  }, [selectedDate, showAllByDate, updateQueueDisplay, showNotification]);
 
   // Handle date selection change
   const handleDateChange = (e) => {
@@ -155,6 +176,11 @@ const AssistantDashboard = () => {
   }, [currentPatient, voiceEnabled, isVoiceSupported, announcePatientCall]);
 
   const queueRefresh = () => {
+    if (showLastThreeMonths) {
+      fetchHistoryPatients(patientSearch);
+      return;
+    }
+
     if (socket) {
       if (showAllByDate && selectedDate) {
         socket.emit("GET_QUEUE_BY_DATE", selectedDate);
@@ -163,6 +189,50 @@ const AssistantDashboard = () => {
       }
     }
   };
+
+  const fetchHistoryPatients = useCallback(
+    async (searchText = "") => {
+      try {
+        const response = await axios.get(
+          `${SOCKET_SERVER}/api/patients/history`,
+          {
+            params: {
+              months: 3,
+              search: searchText?.trim() || undefined,
+            },
+          },
+        );
+
+        setHistoryPatients(Array.isArray(response.data) ? response.data : []);
+      } catch (error) {
+        console.error("Failed to fetch patient history:", error);
+        showNotification("Failed to load last 3 months patient visits");
+      }
+    },
+    [showNotification],
+  );
+
+  const handleToggleLastThreeMonths = () => {
+    const next = !showLastThreeMonths;
+    setShowLastThreeMonths(next);
+
+    if (next) {
+      fetchHistoryPatients(patientSearch);
+      return;
+    }
+
+    queueRefresh();
+  };
+
+  useEffect(() => {
+    if (!showLastThreeMonths) return;
+
+    const timeoutId = setTimeout(() => {
+      fetchHistoryPatients(patientSearch);
+    }, 350);
+
+    return () => clearTimeout(timeoutId);
+  }, [patientSearch, showLastThreeMonths, fetchHistoryPatients]);
 
   const registerUndoAction = (label, operations) => {
     if (undoTimeoutRef.current) {
@@ -212,7 +282,7 @@ const AssistantDashboard = () => {
         ops.push({
           id: currentInProgress._id,
           from: "IN_PROGRESS",
-          to: "DONE",
+          to: "COMPLETED",
         });
       }
       if (nextWaiting?._id) {
@@ -225,6 +295,30 @@ const AssistantDashboard = () => {
     } catch (error) {
       console.error("Call next failed:", error);
       showNotification("Failed to call next patient");
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleVisitDone = async () => {
+    if (!currentPatient?._id || isLoading) return;
+
+    setIsLoading(true);
+    try {
+      await axios.put(
+        `${SOCKET_SERVER}/api/patients/${currentPatient._id}/status`,
+        {
+          status: "COMPLETED",
+        },
+      );
+
+      // Clear active card immediately, then refresh from server.
+      setCurrentPatient(null);
+      showNotification("Visit marked as completed");
+      queueRefresh();
+    } catch (error) {
+      console.error("Visit done failed:", error);
+      showNotification("Failed to mark visit as completed");
     } finally {
       setIsLoading(false);
     }
@@ -285,6 +379,51 @@ const AssistantDashboard = () => {
     }
   };
 
+  const handleEmergencyCall = async (patientId, patientName) => {
+    if (!isTodayView) {
+      showNotification("Quick Call is enabled only for today's patients");
+      return;
+    }
+
+    if (!patientId || isLoading) return;
+
+    const safeName = toTitleCase(patientName || "Patient");
+    const currentInProgress = fullQueue.find((p) => p.status === "IN_PROGRESS");
+
+    if (currentInProgress && currentInProgress._id !== patientId) {
+      const currentName = toTitleCase(
+        currentInProgress.name || "Current Patient",
+      );
+      const confirmed = window.confirm(
+        `Patient ${currentName} is inside. Mark them as DONE and call ${safeName} now?`,
+      );
+      if (!confirmed) return;
+    }
+
+    setIsLoading(true);
+    try {
+      const response = await axios.post(`${SOCKET_SERVER}/api/patients/call`, {
+        patientId,
+      });
+
+      showNotification(`Emergency call started for ${safeName}`);
+      queueRefresh();
+
+      const calledPatient = response?.data?.patient || response?.data || null;
+      const tokenToAnnounce = calledPatient?.tokenNumber;
+      const nameToAnnounce = calledPatient?.name || patientName;
+
+      if (voiceEnabled && isVoiceSupported && tokenToAnnounce) {
+        announcePatientCall(tokenToAnnounce, nameToAnnounce);
+      }
+    } catch (error) {
+      console.error("Emergency call failed:", error);
+      showNotification("Failed to start emergency call");
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
   useEffect(() => {
     return () => {
       if (undoTimeoutRef.current) {
@@ -307,7 +446,31 @@ const AssistantDashboard = () => {
     }));
   };
 
-  const normalizedNameCount = upcomingPatients.reduce((acc, patient) => {
+  const displayedPatients = useMemo(() => {
+    const query = String(patientSearch || "")
+      .trim()
+      .toLowerCase();
+    const source = showLastThreeMonths ? historyPatients : upcomingPatients;
+    if (!query) return source;
+
+    const searchableList = showLastThreeMonths ? historyPatients : fullQueue;
+    return searchableList.filter((patient) => {
+      const name = String(patient?.name || "").toLowerCase();
+      const phone = String(patient?.phone || "").toLowerCase();
+      const token = String(patient?.tokenNumber || "");
+      return (
+        name.includes(query) || phone.includes(query) || token.includes(query)
+      );
+    });
+  }, [
+    patientSearch,
+    upcomingPatients,
+    fullQueue,
+    showLastThreeMonths,
+    historyPatients,
+  ]);
+
+  const normalizedNameCount = displayedPatients.reduce((acc, patient) => {
     const key = String(patient?.name || "")
       .trim()
       .toLowerCase();
@@ -318,7 +481,7 @@ const AssistantDashboard = () => {
 
   useEffect(() => {
     // Auto-expand cards with duplicate names so assistant can verify details immediately
-    const duplicateIds = upcomingPatients
+    const duplicateIds = displayedPatients
       .filter((patient) => {
         const key = String(patient?.name || "")
           .trim()
@@ -339,35 +502,97 @@ const AssistantDashboard = () => {
       });
       return next;
     });
-  }, [upcomingPatients, normalizedNameCount]);
+  }, [displayedPatients, normalizedNameCount]);
+
+  const escapeHtml = (value) =>
+    String(value ?? "")
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;")
+      .replace(/'/g, "&#39;");
+
+  const formatDateTime = (value) => {
+    if (!value) return "-";
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return "-";
+    return date.toLocaleString("en-GB", {
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit",
+      hour12: true,
+    });
+  };
 
   /**
-   * Print all patients currently loaded in `fullQueue`.
-   * Opens a new window with a simple table, then invokes the browser
-   * print dialog. The caller can print or save as PDF.
+   * Always print full selected-day records by fetching server-side date-filtered data
+   * so print output is complete even if current UI shows only a subset.
    */
-  const handlePrint = () => {
-    if (!fullQueue || fullQueue.length === 0) {
-      showNotification("No patients to print");
-      return;
+  const handlePrint = async () => {
+    try {
+      const response = await axios.get(`${SOCKET_SERVER}/api/queue-by-date`, {
+        params: { date: selectedDate },
+      });
+
+      const patientsForDate = Array.isArray(response.data) ? response.data : [];
+      const sortedPatientsForDate = patientsForDate
+        .slice()
+        .sort((a, b) => (a?.tokenNumber || 0) - (b?.tokenNumber || 0));
+
+      if (sortedPatientsForDate.length === 0) {
+        showNotification("No patients found for selected date");
+        return;
+      }
+
+      const printWindow = window.open("", "_blank");
+      if (!printWindow) return;
+
+      const title = `All Patients for ${selectedDate}`;
+      let html = "<html><head>";
+      html += `<title>${escapeHtml(title)}</title>`;
+      html += "<style>";
+      html += "body{font-family:Arial,sans-serif;padding:16px;color:#111;}";
+      html += "h2{margin:0 0 6px 0;}";
+      html += "p{margin:0 0 12px 0;color:#555;}";
+      html += "table{width:100%;border-collapse:collapse;font-size:12px;}";
+      html +=
+        "th,td{border:1px solid #444;padding:6px;text-align:left;vertical-align:top;}";
+      html += "th{background:#f3f4f6;font-weight:700;}";
+      html += "</style></head><body>";
+      html += `<h2>${escapeHtml(title)}</h2>`;
+      html += `<p>Total Patients: ${sortedPatientsForDate.length}</p>`;
+      html += "<table><thead><tr>";
+      html +=
+        "<th>Token</th><th>Name</th><th>Phone</th><th>Age</th><th>Gender</th><th>Type</th><th>Status</th><th>Created At</th><th>Started At</th><th>Completed At</th>";
+      html += "</tr></thead><tbody>";
+
+      sortedPatientsForDate.forEach((patient) => {
+        html += "<tr>";
+        html += `<td>${escapeHtml(patient?.tokenNumber)}</td>`;
+        html += `<td>${escapeHtml(patient?.name)}</td>`;
+        html += `<td>${escapeHtml(patient?.phone)}</td>`;
+        html += `<td>${escapeHtml(patient?.age)}</td>`;
+        html += `<td>${escapeHtml(patient?.gender)}</td>`;
+        html += `<td>${escapeHtml(patient?.type)}</td>`;
+        html += `<td>${escapeHtml(patient?.status)}</td>`;
+        html += `<td>${escapeHtml(formatDateTime(patient?.createdAt))}</td>`;
+        html += `<td>${escapeHtml(formatDateTime(patient?.startedAt))}</td>`;
+        html += `<td>${escapeHtml(formatDateTime(patient?.completedAt))}</td>`;
+        html += "</tr>";
+      });
+
+      html += "</tbody></table></body></html>";
+
+      printWindow.document.write(html);
+      printWindow.document.close();
+      printWindow.focus();
+      printWindow.print();
+    } catch (error) {
+      console.error("Failed to print full day patient list:", error);
+      showNotification("Failed to load full patient list for print");
     }
-
-    const printWindow = window.open("", "_blank");
-    if (!printWindow) return;
-
-    const title = `Patients for ${selectedDate}`;
-    let html = `<html><head><title>${title}</title><style>table{width:100%;border-collapse:collapse;}th,td{border:1px solid #444;padding:4px;text-align:left;}</style></head><body>`;
-    html += `<h2>${title}</h2>`;
-    html += `<table><tr><th>Token</th><th>Name</th><th>Phone</th><th>Status</th><th>Type</th></tr>`;
-    fullQueue.forEach((p) => {
-      html += `<tr><td>${p.tokenNumber}</td><td>${p.name}</td><td>${p.phone}</td><td>${p.status}</td><td>${p.type}</td></tr>`;
-    });
-    html += `</table></body></html>`;
-
-    printWindow.document.write(html);
-    printWindow.document.close();
-    printWindow.focus();
-    printWindow.print();
   };
 
   return (
@@ -590,6 +815,14 @@ const AssistantDashboard = () => {
                   )}
                 </button>
 
+                <button
+                  onClick={handleVisitDone}
+                  disabled={isLoading}
+                  className="w-full mt-3 py-3 px-4 rounded-xl font-bold text-sm bg-white text-medical-700 hover:bg-medical-50 disabled:opacity-60"
+                >
+                  Visit Done
+                </button>
+
                 <div className="grid grid-cols-2 gap-3 mt-3">
                   <button
                     onClick={() =>
@@ -642,7 +875,7 @@ const AssistantDashboard = () => {
                   No Current Patient
                 </p>
                 <p className="text-gray-600 text-sm mt-2">
-                  Queue is empty or all patients are done
+                  Queue is empty or all patients are completed
                 </p>
 
                 <div className="mt-6">
@@ -688,12 +921,16 @@ const AssistantDashboard = () => {
                     📋 Upcoming Patients
                   </h2>
                   <p className="text-xs text-gray-600">
-                    Next in queue • {upcomingPatients.length}
+                    {showLastThreeMonths
+                      ? `Last 3 months visits • ${displayedPatients.length}`
+                      : patientSearch.trim()
+                        ? `Search results • ${displayedPatients.length}`
+                        : `Next in queue • ${displayedPatients.length}`}
                   </p>
 
                   {/* Date controls (visible inside Upcoming card for reliability) */}
                   <div className="mt-2">
-                    <div className="flex items-center gap-2">
+                    <div className="flex items-center gap-2 flex-wrap">
                       <label className="text-xs text-gray-600 font-medium">
                         Date
                       </label>
@@ -716,24 +953,48 @@ const AssistantDashboard = () => {
                         Today
                       </button>
                       <button
+                        onClick={handleToggleLastThreeMonths}
+                        className={`ml-2 text-xs px-2 py-1 rounded border ${showLastThreeMonths ? "bg-indigo-600 text-white border-indigo-600" : "bg-white text-gray-700"}`}
+                        title="Search patient visits in the last 3 months"
+                      >
+                        Last 3 Months
+                      </button>
+                      <button
                         onClick={handlePrint}
                         className="ml-2 text-xs px-2 py-1 rounded bg-green-500 text-white hover:bg-green-600"
                         title="Print patient list for selected date"
                       >
                         Print
                       </button>
+                      <input
+                        type="text"
+                        value={patientSearch}
+                        onChange={(e) => setPatientSearch(e.target.value)}
+                        placeholder="Search name, token, or phone"
+                        className="ml-2 text-xs px-2 py-1 border rounded-md min-w-[220px]"
+                      />
+                      {patientSearch.trim() && (
+                        <button
+                          onClick={() => setPatientSearch("")}
+                          className="text-xs px-2 py-1 rounded bg-gray-100 text-gray-700"
+                        >
+                          Clear
+                        </button>
+                      )}
                     </div>
                   </div>
                 </div>
               </div>
 
               <div className="space-y-3">
-                {upcomingPatients.length === 0 ? (
+                {displayedPatients.length === 0 ? (
                   <div className="p-6 text-center text-gray-600">
-                    No upcoming patients
+                    {patientSearch.trim()
+                      ? "No matching patients found"
+                      : "No upcoming patients"}
                   </div>
                 ) : (
-                  upcomingPatients.map((patient) => {
+                  displayedPatients.map((patient) => {
                     const nameKey = String(patient?.name || "")
                       .trim()
                       .toLowerCase();
@@ -802,9 +1063,27 @@ const AssistantDashboard = () => {
 
                         <div className="mt-3 pt-3 border-t flex items-center justify-between">
                           <div>
-                            <p className="text-sm font-bold text-gray-800">
-                              {toTitleCase(patient.name)}
-                            </p>
+                            <div className="flex items-center gap-2">
+                              <p className="text-sm font-bold text-gray-800">
+                                {toTitleCase(patient.name)}
+                              </p>
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  handleEmergencyCall(patient._id, patient.name)
+                                }
+                                disabled={!isTodayView}
+                                className={`transition-colors ${isTodayView ? "text-gray-400 hover:text-yellow-500" : "text-gray-300 cursor-not-allowed"}`}
+                                title={
+                                  isTodayView
+                                    ? "Quick Call/Emergency"
+                                    : "Quick Call/Emergency (Today's patients only)"
+                                }
+                                aria-label={`Quick Call/Emergency for ${toTitleCase(patient.name)}`}
+                              >
+                                <Zap className="w-4 h-4" />
+                              </button>
+                            </div>
                             <p className="text-xs text-gray-600 mt-1">
                               📞 {patient.phone}
                             </p>
@@ -834,9 +1113,15 @@ const AssistantDashboard = () => {
                             >
                               {patient.type}
                             </span>
-                            <span className="text-xs font-bold px-2 py-1 rounded bg-medical-100 text-medical-800">
-                              Position: {patient.position}
-                            </span>
+                            {showLastThreeMonths ? (
+                              <span className="text-xs font-bold px-2 py-1 rounded bg-gray-100 text-gray-700">
+                                {formatDateTime(patient.createdAt)}
+                              </span>
+                            ) : (
+                              <span className="text-xs font-bold px-2 py-1 rounded bg-medical-100 text-medical-800">
+                                Position: {patient.position}
+                              </span>
+                            )}
                           </div>
                         </div>
                       </div>

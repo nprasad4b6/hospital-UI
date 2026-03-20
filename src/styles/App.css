@@ -63,7 +63,7 @@ main h2 {
   background-color: #fff9e6;
 }
 
-.queue-card.DONE {
+.queue-card.COMPLETED {
   border-left-color: #27ae60;
   background-color: #f0fdf4;
 }
@@ -117,6 +117,6 @@ main h2 {
   font-weight: bold;
 }
 
-.DONE {
+.COMPLETED {
   color: #27ae60;
 }

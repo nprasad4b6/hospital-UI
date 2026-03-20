@@ -68,7 +68,7 @@ const TrackingPage = ({ token }) => {
         return "bg-blue-100 text-blue-800";
       case "IN_PROGRESS":
         return "bg-yellow-100 text-yellow-800";
-      case "DONE":
+      case "COMPLETED":
         return "bg-green-100 text-green-800";
       default:
         return "bg-gray-100 text-gray-800";
@@ -77,7 +77,8 @@ const TrackingPage = ({ token }) => {
 
   const getPositionMessage = () => {
     if (!patientData) return "";
-    if (patientData.status === "DONE") return "✓ Your consultation is complete";
+    if (patientData.status === "COMPLETED")
+      return "✓ Your consultation is complete";
     if (patientData.status === "IN_PROGRESS")
       return "🔴 You are being served now";
     if (patientData.position === 0) return "⏳ You are next in line";
