@@ -368,7 +368,9 @@ const ReceptionForm = ({ onPatientAdded }) => {
                 onClick={() => setShowMoreDetails((v) => !v)}
                 className="text-sm font-semibold text-medical-600 hover:text-medical-800 underline underline-offset-2 transition-colors"
               >
-                {showMoreDetails ? "▲ Hide Extra Details" : "▼ Add More Details"}
+                {showMoreDetails
+                  ? "▲ Hide Extra Details"
+                  : "▼ Add More Details"}
               </button>
             </div>
 
@@ -379,7 +381,9 @@ const ReceptionForm = ({ onPatientAdded }) => {
                 <div>
                   <label className="block text-sm font-semibold text-gray-700 mb-2">
                     Father / Mother Name
-                    <span className="ml-1 text-gray-400 font-normal">(optional)</span>
+                    <span className="ml-1 text-gray-400 font-normal">
+                      (optional)
+                    </span>
                   </label>
                   <input
                     type="text"
@@ -393,7 +397,9 @@ const ReceptionForm = ({ onPatientAdded }) => {
                 <div>
                   <label className="block text-sm font-semibold text-gray-700 mb-2">
                     Relation
-                    <span className="ml-1 text-gray-400 font-normal">(optional)</span>
+                    <span className="ml-1 text-gray-400 font-normal">
+                      (optional)
+                    </span>
                   </label>
                   <select
                     className="input-field bg-white"
@@ -410,7 +416,9 @@ const ReceptionForm = ({ onPatientAdded }) => {
                 <div>
                   <label className="block text-sm font-semibold text-gray-700 mb-2">
                     Place / City
-                    <span className="ml-1 text-gray-400 font-normal">(optional)</span>
+                    <span className="ml-1 text-gray-400 font-normal">
+                      (optional)
+                    </span>
                   </label>
                   <input
                     type="text"

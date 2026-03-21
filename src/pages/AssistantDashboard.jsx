@@ -75,8 +75,12 @@ const AssistantDashboard = () => {
   }, []);
 
   // Keep refs in sync with state so socket handlers always read latest values
-  useEffect(() => { showAllByDateRef.current = showAllByDate; }, [showAllByDate]);
-  useEffect(() => { selectedDateRef.current = selectedDate; }, [selectedDate]);
+  useEffect(() => {
+    showAllByDateRef.current = showAllByDate;
+  }, [showAllByDate]);
+  useEffect(() => {
+    selectedDateRef.current = selectedDate;
+  }, [selectedDate]);
 
   // update queue state based on server-sent queue
   const updateQueueDisplay = useCallback(
@@ -104,7 +108,9 @@ const AssistantDashboard = () => {
   );
 
   // Keep ref in sync so the socket handler always calls the latest version
-  useEffect(() => { updateQueueDisplayRef.current = updateQueueDisplay; }, [updateQueueDisplay]);
+  useEffect(() => {
+    updateQueueDisplayRef.current = updateQueueDisplay;
+  }, [updateQueueDisplay]);
 
   useEffect(() => {
     const newSocket = io(SOCKET_SERVER);
@@ -1355,7 +1361,7 @@ const AssistantDashboard = () => {
                             { enableUndo: true },
                           )
                         }
-                          disabled={isHistoryView}
+                        disabled={isHistoryView}
                         className="text-xs px-2 py-1 rounded border border-gray-200 bg-white"
                         title="Manual status override"
                       >
@@ -1410,7 +1416,9 @@ const AssistantDashboard = () => {
                 <input
                   type="text"
                   value={editForm.name}
-                  onChange={(e) => handleEditFieldChange("name", e.target.value)}
+                  onChange={(e) =>
+                    handleEditFieldChange("name", e.target.value)
+                  }
                   className="w-full px-3 py-2 text-sm border rounded-lg"
                 />
               </div>
@@ -1424,7 +1432,10 @@ const AssistantDashboard = () => {
                     type="tel"
                     value={editForm.phone}
                     onChange={(e) =>
-                      handleEditFieldChange("phone", e.target.value.replace(/\D/g, "").slice(0, 10))
+                      handleEditFieldChange(
+                        "phone",
+                        e.target.value.replace(/\D/g, "").slice(0, 10),
+                      )
                     }
                     className="w-full px-3 py-2 text-sm border rounded-lg"
                   />
@@ -1438,7 +1449,9 @@ const AssistantDashboard = () => {
                     min="0"
                     max="120"
                     value={editForm.age}
-                    onChange={(e) => handleEditFieldChange("age", e.target.value)}
+                    onChange={(e) =>
+                      handleEditFieldChange("age", e.target.value)
+                    }
                     className="w-full px-3 py-2 text-sm border rounded-lg"
                   />
                 </div>
@@ -1450,7 +1463,9 @@ const AssistantDashboard = () => {
                 </label>
                 <select
                   value={editForm.gender}
-                  onChange={(e) => handleEditFieldChange("gender", e.target.value)}
+                  onChange={(e) =>
+                    handleEditFieldChange("gender", e.target.value)
+                  }
                   className="w-full px-3 py-2 text-sm border rounded-lg bg-white"
                 >
                   <option value="FEMALE">Female</option>
@@ -1478,7 +1493,9 @@ const AssistantDashboard = () => {
                 </label>
                 <select
                   value={editForm.relation}
-                  onChange={(e) => handleEditFieldChange("relation", e.target.value)}
+                  onChange={(e) =>
+                    handleEditFieldChange("relation", e.target.value)
+                  }
                   className="w-full px-3 py-2 text-sm border rounded-lg bg-white"
                 >
                   <option value="">Select relation</option>
@@ -1495,7 +1512,9 @@ const AssistantDashboard = () => {
                 <input
                   type="text"
                   value={editForm.address}
-                  onChange={(e) => handleEditFieldChange("address", e.target.value)}
+                  onChange={(e) =>
+                    handleEditFieldChange("address", e.target.value)
+                  }
                   className="w-full px-3 py-2 text-sm border rounded-lg"
                 />
               </div>
