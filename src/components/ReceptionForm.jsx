@@ -19,12 +19,16 @@ const ReceptionForm = ({ onPatientAdded }) => {
       age: "",
       gender: "FEMALE",
       type: "WALK_IN",
+      guardianName: "",
+      relation: "",
+      address: "",
     },
   });
 
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [successData, setSuccessData] = useState(null);
   const [isAppointment, setIsAppointment] = useState(false);
+  const [showMoreDetails, setShowMoreDetails] = useState(false);
 
   const onSubmit = async (data) => {
     setIsSubmitting(true);
@@ -356,6 +360,67 @@ const ReceptionForm = ({ onPatientAdded }) => {
                 </label>
               </div>
             </div>
+
+            {/* Add More Details Toggle */}
+            <div className="text-center">
+              <button
+                type="button"
+                onClick={() => setShowMoreDetails((v) => !v)}
+                className="text-sm font-semibold text-medical-600 hover:text-medical-800 underline underline-offset-2 transition-colors"
+              >
+                {showMoreDetails ? "▲ Hide Extra Details" : "▼ Add More Details"}
+              </button>
+            </div>
+
+            {/* Optional Extra Fields */}
+            {showMoreDetails && (
+              <div className="space-y-4 bg-gray-50 rounded-xl border border-gray-200 p-4">
+                {/* Guardian Name */}
+                <div>
+                  <label className="block text-sm font-semibold text-gray-700 mb-2">
+                    Father / Mother Name
+                    <span className="ml-1 text-gray-400 font-normal">(optional)</span>
+                  </label>
+                  <input
+                    type="text"
+                    placeholder="Enter guardian name"
+                    className="input-field"
+                    {...register("guardianName")}
+                  />
+                </div>
+
+                {/* Relation */}
+                <div>
+                  <label className="block text-sm font-semibold text-gray-700 mb-2">
+                    Relation
+                    <span className="ml-1 text-gray-400 font-normal">(optional)</span>
+                  </label>
+                  <select
+                    className="input-field bg-white"
+                    {...register("relation")}
+                  >
+                    <option value="">— Select relation —</option>
+                    <option value="Father">Father</option>
+                    <option value="Mother">Mother</option>
+                    <option value="Guardian">Guardian</option>
+                  </select>
+                </div>
+
+                {/* Address */}
+                <div>
+                  <label className="block text-sm font-semibold text-gray-700 mb-2">
+                    Place / City
+                    <span className="ml-1 text-gray-400 font-normal">(optional)</span>
+                  </label>
+                  <input
+                    type="text"
+                    placeholder="Enter city or area"
+                    className="input-field"
+                    {...register("address")}
+                  />
+                </div>
+              </div>
+            )}
 
             {/* Appointment Toggle */}
             <div className="bg-medical-50 rounded-lg p-5 border-2 border-medical-200">

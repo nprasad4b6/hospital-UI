@@ -8,7 +8,7 @@ import React, {
 import { io } from "socket.io-client";
 import axios from "axios";
 import { useNavigate } from "react-router-dom";
-import { Zap } from "lucide-react";
+import { Zap, Pencil } from "lucide-react";
 import { useQueueVoice } from "../hooks/useQueueVoice";
 import { toTitleCase } from "../utils/formatters";
 import { auth } from "../firebase";
@@ -41,25 +41,42 @@ const AssistantDashboard = () => {
   const [voiceEnabled, setVoiceEnabled] = useState(true);
   const [expandedCards, setExpandedCards] = useState({});
   const [undoAction, setUndoAction] = useState(null);
+  const [editingPatient, setEditingPatient] = useState(null);
+  const [isEditSaving, setIsEditSaving] = useState(false);
+  const [editForm, setEditForm] = useState({
+    name: "",
+    phone: "",
+    age: "",
+    gender: "FEMALE",
+    guardianName: "",
+    relation: "",
+    address: "",
+  });
   const undoTimeoutRef = useRef(null);
+  const showAllByDateRef = useRef(showAllByDate);
+  const selectedDateRef = useRef(selectedDate);
+  const updateQueueDisplayRef = useRef(null);
   const { announcePatientCall, isSupported: isVoiceSupported } =
     useQueueVoice();
 
-  const istToday = useMemo(() => {
-    const IST_OFFSET_MS = 5.5 * 60 * 60 * 1000;
-    const ist = new Date(Date.now() + IST_OFFSET_MS);
-    const y = ist.getUTCFullYear();
-    const m = String(ist.getUTCMonth() + 1).padStart(2, "0");
-    const d = String(ist.getUTCDate()).padStart(2, "0");
+  const systemToday = useMemo(() => {
+    const now = new Date();
+    const y = now.getFullYear();
+    const m = String(now.getMonth() + 1).padStart(2, "0");
+    const d = String(now.getDate()).padStart(2, "0");
     return `${y}-${m}-${d}`;
   }, []);
 
-  const isTodayView = !showLastThreeMonths && selectedDate === istToday;
+  const isHistoryView = selectedDate !== systemToday;
 
   const showNotification = useCallback((msg) => {
     setNotification(msg);
     setTimeout(() => setNotification(""), 3000);
   }, []);
+
+  // Keep refs in sync with state so socket handlers always read latest values
+  useEffect(() => { showAllByDateRef.current = showAllByDate; }, [showAllByDate]);
+  useEffect(() => { selectedDateRef.current = selectedDate; }, [selectedDate]);
 
   // update queue state based on server-sent queue
   const updateQueueDisplay = useCallback(
@@ -86,26 +103,29 @@ const AssistantDashboard = () => {
     [showAllByDate],
   );
 
+  // Keep ref in sync so the socket handler always calls the latest version
+  useEffect(() => { updateQueueDisplayRef.current = updateQueueDisplay; }, [updateQueueDisplay]);
+
   useEffect(() => {
     const newSocket = io(SOCKET_SERVER);
     setSocket(newSocket);
 
     newSocket.on("connect", () => {
       console.log("Connected to server - Assistant");
-      if (showAllByDate && selectedDate) {
-        newSocket.emit("GET_QUEUE_BY_DATE", selectedDate);
+      if (showAllByDateRef.current && selectedDateRef.current) {
+        newSocket.emit("GET_QUEUE_BY_DATE", selectedDateRef.current);
       } else {
         newSocket.emit("GET_QUEUE");
       }
     });
 
     newSocket.on("QUEUE_UPDATE", (data) => {
-      updateQueueDisplay(data);
+      updateQueueDisplayRef.current(data);
     });
 
     newSocket.on("PATIENT_REGISTERED", (payload) => {
       if (payload && payload.queue) {
-        updateQueueDisplay(payload.queue);
+        updateQueueDisplayRef.current(payload.queue);
       } else {
         newSocket.emit("GET_QUEUE");
       }
@@ -113,7 +133,7 @@ const AssistantDashboard = () => {
 
     newSocket.on("PATIENT_STARTED", (payload) => {
       if (payload && payload.queue) {
-        updateQueueDisplay(payload.queue);
+        updateQueueDisplayRef.current(payload.queue);
       } else {
         newSocket.emit("GET_QUEUE");
       }
@@ -130,7 +150,7 @@ const AssistantDashboard = () => {
     return () => {
       newSocket.close();
     };
-  }, [selectedDate, showAllByDate, updateQueueDisplay, showNotification]);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Handle date selection change
   const handleDateChange = (e) => {
@@ -164,8 +184,8 @@ const AssistantDashboard = () => {
     const d = String(ist.getUTCDate()).padStart(2, "0");
     const today = `${y}-${m}-${d}`;
     setSelectedDate(today);
-    setShowAllByDate(true);
-    if (socket) socket.emit("GET_QUEUE_BY_DATE", today);
+    setShowAllByDate(false);
+    if (socket) socket.emit("GET_QUEUE");
   };
 
   // announce current patient when it changes
@@ -349,6 +369,11 @@ const AssistantDashboard = () => {
     previousStatus,
     options = {},
   ) => {
+    if (isHistoryView) {
+      showNotification("Actions are disabled for past dates");
+      return;
+    }
+
     const { confirmMessage = "", enableUndo = true } = options;
 
     if (confirmMessage) {
@@ -380,7 +405,7 @@ const AssistantDashboard = () => {
   };
 
   const handleEmergencyCall = async (patientId, patientName) => {
-    if (!isTodayView) {
+    if (isHistoryView) {
       showNotification("Quick Call is enabled only for today's patients");
       return;
     }
@@ -421,6 +446,93 @@ const AssistantDashboard = () => {
       showNotification("Failed to start emergency call");
     } finally {
       setIsLoading(false);
+    }
+  };
+
+  const openEditModal = (patient) => {
+    if (!patient?._id) return;
+    setEditingPatient(patient);
+    setEditForm({
+      name: patient?.name || "",
+      phone: patient?.phone || "",
+      age:
+        patient?.age === undefined || patient?.age === null
+          ? ""
+          : String(patient.age),
+      gender: patient?.gender || "FEMALE",
+      guardianName: patient?.guardianName || "",
+      relation: patient?.relation || "",
+      address: patient?.address || "",
+    });
+  };
+
+  const closeEditModal = () => {
+    if (isEditSaving) return;
+    setEditingPatient(null);
+  };
+
+  const handleEditFieldChange = (field, value) => {
+    setEditForm((prev) => ({ ...prev, [field]: value }));
+  };
+
+  const handleSavePatientEdit = async () => {
+    if (!editingPatient?._id || isEditSaving) return;
+
+    const name = String(editForm.name || "").trim();
+    const phone = String(editForm.phone || "").trim();
+    const ageText = String(editForm.age || "").trim();
+    const guardianName = String(editForm.guardianName || "").trim();
+    const relation = String(editForm.relation || "").trim();
+    const address = String(editForm.address || "").trim();
+
+    if (!name || name.length < 2) {
+      showNotification("Name must be at least 2 characters");
+      return;
+    }
+    if (!/^\d{10}$/.test(phone)) {
+      showNotification("Phone number must be 10 digits");
+      return;
+    }
+    if (!ageText || Number.isNaN(Number(ageText))) {
+      showNotification("Age is required");
+      return;
+    }
+    const age = Number(ageText);
+    if (age < 0 || age > 120) {
+      showNotification("Age must be between 0 and 120");
+      return;
+    }
+
+    if (relation && !["Father", "Mother", "Guardian"].includes(relation)) {
+      showNotification("Invalid relation selected");
+      return;
+    }
+
+    setIsEditSaving(true);
+    try {
+      await axios.put(`${SOCKET_SERVER}/api/patients/${editingPatient._id}`, {
+        name,
+        phone,
+        age,
+        gender: editForm.gender || "FEMALE",
+        guardianName,
+        relation,
+        address,
+      });
+
+      showNotification("Patient details updated");
+      setEditingPatient(null);
+      queueRefresh();
+    } catch (error) {
+      console.error("Patient edit failed:", error);
+      const serverMessage =
+        error?.response?.data?.error ||
+        error?.response?.data?.message ||
+        error?.message ||
+        "Failed to update patient details";
+      showNotification(serverMessage);
+    } finally {
+      setIsEditSaving(false);
     }
   };
 
@@ -565,7 +677,7 @@ const AssistantDashboard = () => {
       html += `<p>Total Patients: ${sortedPatientsForDate.length}</p>`;
       html += "<table><thead><tr>";
       html +=
-        "<th>Token</th><th>Name</th><th>Phone</th><th>Age</th><th>Gender</th><th>Type</th><th>Status</th><th>Created At</th><th>Started At</th><th>Completed At</th>";
+        "<th>Token</th><th>Name</th><th>Phone</th><th>Age</th><th>Gender</th><th>Guardian Name</th><th>Relation</th><th>Place/City</th><th>Type</th><th>Status</th><th>Created At</th><th>Started At</th><th>Completed At</th>";
       html += "</tr></thead><tbody>";
 
       sortedPatientsForDate.forEach((patient) => {
@@ -575,6 +687,9 @@ const AssistantDashboard = () => {
         html += `<td>${escapeHtml(patient?.phone)}</td>`;
         html += `<td>${escapeHtml(patient?.age)}</td>`;
         html += `<td>${escapeHtml(patient?.gender)}</td>`;
+        html += `<td>${escapeHtml(patient?.guardianName || "-")}</td>`;
+        html += `<td>${escapeHtml(patient?.relation || "-")}</td>`;
+        html += `<td>${escapeHtml(patient?.address || "-")}</td>`;
         html += `<td>${escapeHtml(patient?.type)}</td>`;
         html += `<td>${escapeHtml(patient?.status)}</td>`;
         html += `<td>${escapeHtml(formatDateTime(patient?.createdAt))}</td>`;
@@ -609,19 +724,19 @@ const AssistantDashboard = () => {
             </p>
           </div>
           <div className="flex items-center gap-3">
-            <button
-              onClick={() => navigate("/patient-registration")}
+            <a
+              href="/patient-registration"
               className="text-xs px-3 py-2 rounded-lg bg-medical-100 text-medical-700 hover:bg-medical-200 font-semibold"
             >
               Patient Registration
-            </button>
+            </a>
 
-            <button
-              onClick={() => navigate("/lobby")}
+            <a
+              href="/lobby"
               className="text-xs px-3 py-2 rounded-lg bg-indigo-100 text-indigo-700 hover:bg-indigo-200 font-semibold"
             >
               Lobby Display
-            </button>
+            </a>
 
             {/* Date filter & Show All toggle */}
             <div className="flex items-center gap-2 bg-white px-3 py-1 rounded-lg">
@@ -635,12 +750,14 @@ const AssistantDashboard = () => {
                 className="text-xs px-2 py-1 border rounded-md"
               />
               <button
+                type="button"
                 onClick={handleToggleShowAll}
                 className={`ml-3 text-xs px-2 py-1 rounded whitespace-nowrap min-w-[90px] ${showAllByDate ? "bg-blue-500 text-white" : "bg-gray-100 text-gray-700"}`}
               >
                 {showAllByDate ? "Showing All" : "Show All"}
               </button>
               <button
+                type="button"
                 onClick={handlePrint}
                 className="ml-2 text-xs px-2 py-1 rounded bg-green-500 text-white hover:bg-green-600"
                 title="Print patient list for selected date"
@@ -693,6 +810,12 @@ const AssistantDashboard = () => {
 
       {/* Main Content - Top Padding for Fixed Header */}
       <div className="max-w-7xl mx-auto mt-24 px-4">
+        {isHistoryView && (
+          <div className="mb-4 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-800">
+            Viewing history: Actions are disabled for past dates.
+          </div>
+        )}
+
         <div className="grid grid-cols-12 gap-6">
           {/* Left Column - 40% */}
           <div className="col-span-12 lg:col-span-5 space-y-4">
@@ -1006,7 +1129,7 @@ const AssistantDashboard = () => {
                     return (
                       <div
                         key={patient._id}
-                        className={`p-4 rounded-xl border hover:shadow-md transition-all ${
+                        className={`p-4 rounded-xl border hover:shadow-md transition-all ${isHistoryView ? "readonly-card" : ""} ${
                           hasDuplicateName
                             ? "border-amber-300 bg-amber-50"
                             : "border-gray-100"
@@ -1050,6 +1173,7 @@ const AssistantDashboard = () => {
                                   { enableUndo: true },
                                 )
                               }
+                              disabled={isHistoryView}
                               className="text-xs px-2 py-1 rounded border border-gray-200 bg-white"
                               title="Manual status override"
                             >
@@ -1069,13 +1193,27 @@ const AssistantDashboard = () => {
                               </p>
                               <button
                                 type="button"
+                                onClick={() => openEditModal(patient)}
+                                disabled={isHistoryView}
+                                className={`transition-colors ${!isHistoryView ? "text-gray-400 hover:text-blue-600" : "text-gray-300 cursor-not-allowed"}`}
+                                title={
+                                  !isHistoryView
+                                    ? "Edit Patient"
+                                    : "Edit disabled for past dates"
+                                }
+                                aria-label={`Edit ${toTitleCase(patient.name)}`}
+                              >
+                                <Pencil className="w-4 h-4" />
+                              </button>
+                              <button
+                                type="button"
                                 onClick={() =>
                                   handleEmergencyCall(patient._id, patient.name)
                                 }
-                                disabled={!isTodayView}
-                                className={`transition-colors ${isTodayView ? "text-gray-400 hover:text-yellow-500" : "text-gray-300 cursor-not-allowed"}`}
+                                disabled={isHistoryView}
+                                className={`transition-colors ${!isHistoryView ? "text-gray-400 hover:text-yellow-500" : "text-gray-300 cursor-not-allowed"}`}
                                 title={
-                                  isTodayView
+                                  !isHistoryView
                                     ? "Quick Call/Emergency"
                                     : "Quick Call/Emergency (Today's patients only)"
                                 }
@@ -1090,12 +1228,6 @@ const AssistantDashboard = () => {
                             {isExpanded && (
                               <div className="mt-2 text-xs text-gray-700 space-y-1">
                                 <p>
-                                  <span className="font-semibold">
-                                    Full Phone:
-                                  </span>{" "}
-                                  {patient.phone}
-                                </p>
-                                <p>
                                   <span className="font-semibold">Age:</span>{" "}
                                   {patient.age ?? "-"}
                                 </p>
@@ -1103,6 +1235,25 @@ const AssistantDashboard = () => {
                                   <span className="font-semibold">Gender:</span>{" "}
                                   {patient.gender || "FEMALE"}
                                 </p>
+                                {(patient.guardianName || patient.relation) && (
+                                  <p>
+                                    <span className="font-semibold">
+                                      {patient.relation
+                                        ? patient.relation
+                                        : "Guardian"}
+                                      :
+                                    </span>{" "}
+                                    {patient.guardianName || "-"}
+                                  </p>
+                                )}
+                                {patient.address && (
+                                  <p>
+                                    <span className="font-semibold">
+                                      Place/City:
+                                    </span>{" "}
+                                    {patient.address}
+                                  </p>
+                                )}
                               </div>
                             )}
                           </div>
@@ -1157,7 +1308,7 @@ const AssistantDashboard = () => {
                 return (
                   <div
                     key={`reentry-${patient._id}`}
-                    className="flex items-center justify-between border rounded-lg p-3"
+                    className={`flex items-center justify-between border rounded-lg p-3 ${isHistoryView ? "readonly-card" : ""}`}
                   >
                     <div>
                       <p className="text-sm font-bold text-gray-800">
@@ -1186,6 +1337,7 @@ const AssistantDashboard = () => {
                               patient.status,
                             )
                           }
+                          disabled={isHistoryView}
                           className="text-xs px-2 py-1 rounded bg-green-500 hover:bg-green-600 text-white font-semibold"
                         >
                           Re-add to Queue
@@ -1203,6 +1355,7 @@ const AssistantDashboard = () => {
                             { enableUndo: true },
                           )
                         }
+                          disabled={isHistoryView}
                         className="text-xs px-2 py-1 rounded border border-gray-200 bg-white"
                         title="Manual status override"
                       >
@@ -1229,6 +1382,144 @@ const AssistantDashboard = () => {
           >
             Undo
           </button>
+        </div>
+      )}
+
+      {editingPatient && (
+        <div className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-4">
+          <div className="w-full max-w-lg bg-white rounded-2xl shadow-2xl border border-gray-200">
+            <div className="px-5 py-4 border-b border-gray-200 flex items-center justify-between">
+              <h3 className="text-base font-bold text-gray-800">
+                Edit Patient Details
+              </h3>
+              <button
+                type="button"
+                onClick={closeEditModal}
+                className="text-sm px-2 py-1 rounded bg-gray-100 text-gray-700 hover:bg-gray-200"
+                disabled={isEditSaving}
+              >
+                Close
+              </button>
+            </div>
+
+            <div className="p-5 space-y-3">
+              <div>
+                <label className="block text-xs font-semibold text-gray-700 mb-1">
+                  Full Name
+                </label>
+                <input
+                  type="text"
+                  value={editForm.name}
+                  onChange={(e) => handleEditFieldChange("name", e.target.value)}
+                  className="w-full px-3 py-2 text-sm border rounded-lg"
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-semibold text-gray-700 mb-1">
+                    Phone
+                  </label>
+                  <input
+                    type="tel"
+                    value={editForm.phone}
+                    onChange={(e) =>
+                      handleEditFieldChange("phone", e.target.value.replace(/\D/g, "").slice(0, 10))
+                    }
+                    className="w-full px-3 py-2 text-sm border rounded-lg"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-gray-700 mb-1">
+                    Age
+                  </label>
+                  <input
+                    type="number"
+                    min="0"
+                    max="120"
+                    value={editForm.age}
+                    onChange={(e) => handleEditFieldChange("age", e.target.value)}
+                    className="w-full px-3 py-2 text-sm border rounded-lg"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-gray-700 mb-1">
+                  Gender
+                </label>
+                <select
+                  value={editForm.gender}
+                  onChange={(e) => handleEditFieldChange("gender", e.target.value)}
+                  className="w-full px-3 py-2 text-sm border rounded-lg bg-white"
+                >
+                  <option value="FEMALE">Female</option>
+                  <option value="MALE">Male</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-gray-700 mb-1">
+                  Father / Mother Name
+                </label>
+                <input
+                  type="text"
+                  value={editForm.guardianName}
+                  onChange={(e) =>
+                    handleEditFieldChange("guardianName", e.target.value)
+                  }
+                  className="w-full px-3 py-2 text-sm border rounded-lg"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-gray-700 mb-1">
+                  Relation
+                </label>
+                <select
+                  value={editForm.relation}
+                  onChange={(e) => handleEditFieldChange("relation", e.target.value)}
+                  className="w-full px-3 py-2 text-sm border rounded-lg bg-white"
+                >
+                  <option value="">Select relation</option>
+                  <option value="Father">Father</option>
+                  <option value="Mother">Mother</option>
+                  <option value="Guardian">Guardian</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-gray-700 mb-1">
+                  Place / City
+                </label>
+                <input
+                  type="text"
+                  value={editForm.address}
+                  onChange={(e) => handleEditFieldChange("address", e.target.value)}
+                  className="w-full px-3 py-2 text-sm border rounded-lg"
+                />
+              </div>
+            </div>
+
+            <div className="px-5 py-4 border-t border-gray-200 flex items-center justify-end gap-2">
+              <button
+                type="button"
+                onClick={closeEditModal}
+                disabled={isEditSaving}
+                className="px-3 py-2 text-sm rounded-lg bg-gray-100 text-gray-700 hover:bg-gray-200 disabled:opacity-60"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleSavePatientEdit}
+                disabled={isEditSaving}
+                className="px-3 py-2 text-sm rounded-lg bg-medical-600 text-white hover:bg-medical-700 disabled:opacity-60"
+              >
+                {isEditSaving ? "Saving..." : "Save Changes"}
+              </button>
+            </div>
+          </div>
         </div>
       )}
 

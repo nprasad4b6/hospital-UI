@@ -21,3 +21,12 @@ body {
 .btn-primary:disabled {
   @apply bg-gray-400 cursor-not-allowed;
 }
+
+.readonly-card {
+  opacity: 0.6;
+}
+
+.readonly-card button,
+.readonly-card select {
+  pointer-events: none;
+}
