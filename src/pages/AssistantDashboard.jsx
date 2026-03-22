@@ -8,7 +8,7 @@ import React, {
 import { io } from "socket.io-client";
 import axios from "axios";
 import { useNavigate } from "react-router-dom";
-import { Zap, Pencil } from "lucide-react";
+import { Zap, Pencil, User } from "lucide-react";
 import { useQueueVoice } from "../hooks/useQueueVoice";
 import { toTitleCase } from "../utils/formatters";
 import { auth } from "../firebase";
@@ -35,12 +35,15 @@ const AssistantDashboard = () => {
   const [showLastThreeMonths, setShowLastThreeMonths] = useState(false);
   const [patientSearch, setPatientSearch] = useState("");
   const [historyPatients, setHistoryPatients] = useState([]);
-  const [isBreak, setIsBreak] = useState(false);
+  const [doctorBreakStatus, setDoctorBreakStatus] = useState({});
   const [isLoading, setIsLoading] = useState(false);
   const [notification, setNotification] = useState("");
   const [voiceEnabled, setVoiceEnabled] = useState(true);
   const [expandedCards, setExpandedCards] = useState({});
   const [undoAction, setUndoAction] = useState(null);
+  const [selectedDateTotalCount, setSelectedDateTotalCount] = useState(0);
+  const [doctors, setDoctors] = useState([]);
+  const [activeDoctorId, setActiveDoctorId] = useState(null);
   const [editingPatient, setEditingPatient] = useState(null);
   const [isEditSaving, setIsEditSaving] = useState(false);
   const [editForm, setEditForm] = useState({
@@ -59,6 +62,14 @@ const AssistantDashboard = () => {
   const { announcePatientCall, isSupported: isVoiceSupported } =
     useQueueVoice();
 
+  // Fetch active doctors once on mount for tab rendering
+  useEffect(() => {
+    axios
+      .get(`${SOCKET_SERVER}/api/doctors`)
+      .then((res) => setDoctors(Array.isArray(res.data) ? res.data : []))
+      .catch(() => setDoctors([]));
+  }, []);
+
   const systemToday = useMemo(() => {
     const now = new Date();
     const y = now.getFullYear();
@@ -68,6 +79,14 @@ const AssistantDashboard = () => {
   }, []);
 
   const isHistoryView = selectedDate !== systemToday;
+  const isLastThreeMonthsMode = showLastThreeMonths;
+  const isShowAllMode = !showLastThreeMonths && showAllByDate;
+  const isTodayMode = !showLastThreeMonths && !showAllByDate;
+  const selectedDateLabel = useMemo(() => {
+    const parts = String(selectedDate || "").split("-");
+    if (parts.length !== 3) return selectedDate;
+    return `${parts[2]}-${parts[1]}-${parts[0]}`;
+  }, [selectedDate]);
 
   const showNotification = useCallback((msg) => {
     setNotification(msg);
@@ -162,27 +181,22 @@ const AssistantDashboard = () => {
   const handleDateChange = (e) => {
     const newDate = e.target.value;
     setSelectedDate(newDate);
+    setShowLastThreeMonths(false);
+    setShowAllByDate(true);
     if (socket) {
       socket.emit("GET_QUEUE_BY_DATE", newDate);
-      setShowAllByDate(true);
     }
   };
 
   const handleToggleShowAll = () => {
-    const next = !showAllByDate;
-    setShowAllByDate(next);
+    setShowLastThreeMonths(false);
+    setShowAllByDate(true);
     if (socket) {
-      if (next) {
-        socket.emit("GET_QUEUE_BY_DATE", selectedDate);
-      } else {
-        socket.emit("GET_QUEUE");
-      }
+      socket.emit("GET_QUEUE_BY_DATE", selectedDate);
     }
   };
 
   const handleResetToToday = () => {
-    const shouldReset = window.confirm("Reset filter to today's date?");
-    if (!shouldReset) return;
     const IST_OFFSET_MS = 5.5 * 60 * 60 * 1000;
     const ist = new Date(Date.now() + IST_OFFSET_MS);
     const y = ist.getUTCFullYear();
@@ -190,6 +204,7 @@ const AssistantDashboard = () => {
     const d = String(ist.getUTCDate()).padStart(2, "0");
     const today = `${y}-${m}-${d}`;
     setSelectedDate(today);
+    setShowLastThreeMonths(false);
     setShowAllByDate(false);
     if (socket) socket.emit("GET_QUEUE");
   };
@@ -238,16 +253,60 @@ const AssistantDashboard = () => {
     [showNotification],
   );
 
-  const handleToggleLastThreeMonths = () => {
-    const next = !showLastThreeMonths;
-    setShowLastThreeMonths(next);
-
-    if (next) {
-      fetchHistoryPatients(patientSearch);
-      return;
+  const fetchSelectedDateTotalCount = useCallback(async () => {
+    if (!selectedDate) return;
+    try {
+      const response = await axios.get(`${SOCKET_SERVER}/api/queue-by-date`, {
+        params: { date: selectedDate },
+      });
+      const list = Array.isArray(response.data) ? response.data : [];
+      setSelectedDateTotalCount(list.length);
+    } catch (error) {
+      console.error("Failed to fetch selected date total count:", error);
     }
+  }, [selectedDate]);
 
-    queueRefresh();
+  // Badge count: scoped to active doctor when a tab is selected
+  const badgePatientCount = useMemo(() => {
+    if (!activeDoctorId) return selectedDateTotalCount;
+    return fullQueue.filter((p) => String(p?.doctorId) === activeDoctorId)
+      .length;
+  }, [activeDoctorId, selectedDateTotalCount, fullQueue]);
+
+  // Per-doctor waiting patient counts for tab badges
+  const doctorWaitingCounts = useMemo(() => {
+    const counts = {};
+    fullQueue.forEach((p) => {
+      if (p.status === "WAITING" && p.doctorId) {
+        const key = String(p.doctorId);
+        counts[key] = (counts[key] || 0) + 1;
+      }
+    });
+    return counts;
+  }, [fullQueue]);
+
+  const allWaitingCount = useMemo(
+    () => fullQueue.filter((p) => p.status === "WAITING").length,
+    [fullQueue],
+  );
+
+  // Derive break state for whichever doctor tab is active
+  const isBreak = !!doctorBreakStatus[activeDoctorId || "all"];
+
+  // Name of the currently selected doctor (null = All)
+  const activeDoctorName = useMemo(() => {
+    if (!activeDoctorId) return null;
+    return doctors.find((d) => d._id === activeDoctorId)?.name || null;
+  }, [activeDoctorId, doctors]);
+
+  useEffect(() => {
+    fetchSelectedDateTotalCount();
+  }, [fetchSelectedDateTotalCount, fullQueue.length]);
+
+  const handleToggleLastThreeMonths = () => {
+    setShowAllByDate(false);
+    setShowLastThreeMonths(true);
+    fetchHistoryPatients(patientSearch);
   };
 
   useEffect(() => {
@@ -294,13 +353,37 @@ const AssistantDashboard = () => {
     if (!socket || isLoading) return;
 
     const currentInProgress = fullQueue.find((p) => p.status === "IN_PROGRESS");
-    const nextWaiting = fullQueue
-      .filter((p) => p.status === "WAITING")
+
+    // When a doctor tab is active, only pick from that doctor's waiting patients
+    const waitingPool = activeDoctorId
+      ? fullQueue.filter(
+          (p) =>
+            p.status === "WAITING" && String(p?.doctorId) === activeDoctorId,
+        )
+      : fullQueue.filter((p) => p.status === "WAITING");
+    const nextWaiting = waitingPool
+      .slice()
       .sort((a, b) => (a.position ?? 9999) - (b.position ?? 9999))[0];
 
     setIsLoading(true);
     try {
-      await axios.post(`${SOCKET_SERVER}/api/start-consultation`, {});
+      if (activeDoctorId && nextWaiting) {
+        // Doctor-scoped: complete current globally, then promote specific next patient
+        if (currentInProgress?._id) {
+          await axios.put(
+            `${SOCKET_SERVER}/api/patients/${currentInProgress._id}/status`,
+            { status: "COMPLETED" },
+          );
+        }
+        await axios.put(
+          `${SOCKET_SERVER}/api/patients/${nextWaiting._id}/status`,
+          { status: "IN_PROGRESS" },
+        );
+      } else {
+        // Global: use existing start-consultation endpoint
+        await axios.post(`${SOCKET_SERVER}/api/start-consultation`, {});
+      }
+
       showNotification("Calling next patient...");
 
       const ops = [];
@@ -351,11 +434,17 @@ const AssistantDashboard = () => {
   };
 
   const handleBreakToggle = () => {
-    setIsBreak(!isBreak);
+    const key = activeDoctorId || "all";
+    const currentBreak = !!doctorBreakStatus[key];
+    const nextBreak = !currentBreak;
+    setDoctorBreakStatus((prev) => ({ ...prev, [key]: nextBreak }));
     if (socket) {
-      socket.emit("DOCTOR_BREAK_STATUS", { isOnBreak: !isBreak });
+      socket.emit("DOCTOR_BREAK_STATUS", {
+        isOnBreak: nextBreak,
+        doctorId: key,
+      });
     }
-    showNotification(`Doctor ${!isBreak ? "on break" : "back"}`);
+    showNotification(`Doctor ${nextBreak ? "on break" : "back"}`);
   };
 
   const handleLogout = async () => {
@@ -569,24 +658,40 @@ const AssistantDashboard = () => {
       .trim()
       .toLowerCase();
     const source = showLastThreeMonths ? historyPatients : upcomingPatients;
-    if (!query) return source;
-
     const searchableList = showLastThreeMonths ? historyPatients : fullQueue;
-    return searchableList.filter((patient) => {
-      const name = String(patient?.name || "").toLowerCase();
-      const phone = String(patient?.phone || "").toLowerCase();
-      const token = String(patient?.tokenNumber || "");
-      return (
-        name.includes(query) || phone.includes(query) || token.includes(query)
-      );
-    });
+
+    let list = !query
+      ? source
+      : searchableList.filter((patient) => {
+          const name = String(patient?.name || "").toLowerCase();
+          const phone = String(patient?.phone || "").toLowerCase();
+          const token = String(patient?.tokenNumber || "");
+          return (
+            name.includes(query) ||
+            phone.includes(query) ||
+            token.includes(query)
+          );
+        });
+
+    if (activeDoctorId) {
+      list = list.filter((p) => String(p?.doctorId) === activeDoctorId);
+    }
+
+    return list;
   }, [
     patientSearch,
     upcomingPatients,
     fullQueue,
     showLastThreeMonths,
     historyPatients,
+    activeDoctorId,
   ]);
+
+  // Get next waiting patient to display in placeholder
+  const nextPatient = useMemo(() => {
+    const waiting = displayedPatients.filter((p) => p.status === "WAITING");
+    return waiting.length > 0 ? waiting[0] : null;
+  }, [displayedPatients]);
 
   const normalizedNameCount = displayedPatients.reduce((acc, patient) => {
     const key = String(patient?.name || "")
@@ -758,9 +863,9 @@ const AssistantDashboard = () => {
               <button
                 type="button"
                 onClick={handleToggleShowAll}
-                className={`ml-3 text-xs px-2 py-1 rounded whitespace-nowrap min-w-[90px] ${showAllByDate ? "bg-blue-500 text-white" : "bg-gray-100 text-gray-700"}`}
+                className={`ml-3 text-xs px-2 py-1 rounded whitespace-nowrap min-w-[90px] ${isShowAllMode ? "bg-blue-500 text-white" : "bg-gray-100 text-gray-700"}`}
               >
-                {showAllByDate ? "Showing All" : "Show All"}
+                {isShowAllMode ? "Showing All" : "Show All"}
               </button>
               <button
                 type="button"
@@ -830,24 +935,43 @@ const AssistantDashboard = () => {
               <div className="flex items-center justify-between gap-4">
                 <div>
                   <p className="text-sm font-semibold text-gray-800">
-                    Doctor Status
+                    {activeDoctorName ? activeDoctorName : "Doctor Status"}
                   </p>
+                  {activeDoctorName && (
+                    <p className="text-[11px] text-gray-400 leading-tight">
+                      {doctors.find((d) => d._id === activeDoctorId)
+                        ?.specialization || ""}
+                    </p>
+                  )}
                   <p
-                    className={`text-xs font-bold ${isBreak ? "text-orange-600" : "text-green-600"}`}
+                    className={`text-xs font-bold mt-0.5 ${isBreak ? "text-orange-600" : "text-green-600"}`}
                   >
                     {isBreak ? "🔴 ON BREAK" : "🟢 ACTIVE"}
                   </p>
                 </div>
 
-                {/* Break Toggle Switch */}
-                <button
-                  onClick={handleBreakToggle}
-                  className={`relative inline-flex h-10 w-16 items-center rounded-full transition-all ${isBreak ? "bg-orange-500" : "bg-green-500"} shadow-md`}
-                >
-                  <span
-                    className={`inline-block h-8 w-8 transform rounded-full bg-white transition-transform ${isBreak ? "translate-x-7" : "translate-x-1"}`}
-                  />
-                </button>
+                <div className="flex items-center gap-3">
+                  <div className="self-center rounded-lg bg-blue-50 border border-blue-100 shadow-sm px-3 py-2 min-w-[132px] text-center flex flex-col items-center justify-center">
+                    <p className="text-2xl font-black text-blue-900 leading-none">
+                      {badgePatientCount}
+                    </p>
+                    <p className="text-[10px] font-semibold text-blue-700 mt-1 uppercase tracking-wide inline-flex items-center gap-1">
+                      <User className="w-3 h-3" />
+                      {activeDoctorId ? "Dr. Patients" : "Total Patients"}
+                    </p>
+                  </div>
+
+                  {/* Break Toggle Switch */}
+                  <button
+                    type="button"
+                    onClick={handleBreakToggle}
+                    className={`relative inline-flex h-10 w-16 items-center rounded-full transition-all ${isBreak ? "bg-orange-500" : "bg-green-500"} shadow-md`}
+                  >
+                    <span
+                      className={`inline-block h-8 w-8 transform rounded-full bg-white transition-transform ${isBreak ? "translate-x-7" : "translate-x-1"}`}
+                    />
+                  </button>
+                </div>
               </div>
               <p className="text-xs text-gray-500 mt-2">
                 Toggle to pause wait-time countdowns
@@ -998,14 +1122,21 @@ const AssistantDashboard = () => {
                 )}
               </div>
             ) : (
-              <div className="bg-white rounded-3xl shadow-lg p-8 text-center border-2 border-dashed border-medical-200">
-                <p className="text-4xl mb-2">👥</p>
-                <p className="text-lg font-bold text-gray-800">
+              <div className="bg-white rounded-3xl shadow-lg p-8 text-center border-2 border-dashed border-gray-200">
+                <p className="text-4xl mb-3">👥</p>
+                <p className="text-lg font-bold text-gray-800 mb-1">
                   No Current Patient
                 </p>
-                <p className="text-gray-600 text-sm mt-2">
-                  Queue is empty or all patients are completed
+                <p className="text-gray-600 text-sm mb-4">
+                  {nextPatient
+                    ? `Next to be called: ${toTitleCase(nextPatient.name)}`
+                    : "Queue is empty or all patients are completed"}
                 </p>
+                {nextPatient && (
+                  <div className="text-xs text-gray-500 mb-4 pb-3 border-b border-gray-200">
+                    <span className="inline-block">📞 {nextPatient.phone}</span>
+                  </div>
+                )}
 
                 <div className="mt-6">
                   <button
@@ -1070,20 +1201,23 @@ const AssistantDashboard = () => {
                         className="text-xs px-2 py-1 border rounded-md"
                       />
                       <button
+                        type="button"
                         onClick={handleToggleShowAll}
-                        className={`ml-2 text-xs px-2 py-1 rounded ${showAllByDate ? "bg-blue-500 text-white" : "bg-gray-100 text-gray-700"}`}
+                        className={`ml-2 text-xs px-2 py-1 rounded ${isShowAllMode ? "bg-blue-500 text-white" : "bg-gray-100 text-gray-700"}`}
                       >
-                        {showAllByDate ? "Showing All" : "Show All"}
+                        {isShowAllMode ? "Showing All" : "Show All"}
                       </button>
                       <button
+                        type="button"
                         onClick={handleResetToToday}
-                        className="ml-2 text-xs px-2 py-1 rounded bg-gray-50 border"
+                        className={`ml-2 text-xs px-2 py-1 rounded border ${isTodayMode ? "bg-gray-800 text-white border-gray-800" : "bg-gray-50 text-gray-700"}`}
                       >
                         Today
                       </button>
                       <button
+                        type="button"
                         onClick={handleToggleLastThreeMonths}
-                        className={`ml-2 text-xs px-2 py-1 rounded border ${showLastThreeMonths ? "bg-indigo-600 text-white border-indigo-600" : "bg-white text-gray-700"}`}
+                        className={`ml-2 text-xs px-2 py-1 rounded border ${isLastThreeMonthsMode ? "bg-indigo-600 text-white border-indigo-600" : "bg-white text-gray-700"}`}
                         title="Search patient visits in the last 3 months"
                       >
                         Last 3 Months
@@ -1115,7 +1249,67 @@ const AssistantDashboard = () => {
                 </div>
               </div>
 
-              <div className="space-y-3">
+              {/* Doctor Tabs */}
+              {doctors.length > 0 && (
+                <div className="flex items-center gap-2 overflow-x-auto pb-2 mb-4 scrollbar-thin scrollbar-thumb-gray-200">
+                  {/* All tab */}
+                  <button
+                    type="button"
+                    onClick={() => setActiveDoctorId(null)}
+                    className={`relative shrink-0 text-xs px-3 pt-1.5 pb-2 rounded-lg font-semibold border-2 transition-all whitespace-nowrap ${
+                      activeDoctorId === null
+                        ? "bg-blue-600 text-white border-blue-600 shadow-[0_4px_12px_rgba(37,99,235,0.4)] border-b-[3px]"
+                        : "bg-white text-gray-500 border-gray-200 hover:border-blue-300 hover:text-blue-600"
+                    }`}
+                  >
+                    All
+                    {allWaitingCount > 0 && (
+                      <span
+                        className={`absolute -top-1.5 -right-1.5 min-w-[16px] h-4 px-0.5 rounded-full text-[10px] font-bold flex items-center justify-center leading-none ${
+                          activeDoctorId === null
+                            ? "bg-white text-blue-700"
+                            : "bg-blue-600 text-white"
+                        }`}
+                      >
+                        {allWaitingCount}
+                      </span>
+                    )}
+                  </button>
+
+                  {doctors.map((doc) => {
+                    const waitCount = doctorWaitingCounts[doc._id] || 0;
+                    const isActive = activeDoctorId === doc._id;
+                    return (
+                      <button
+                        key={doc._id}
+                        type="button"
+                        onClick={() => setActiveDoctorId(doc._id)}
+                        className={`relative shrink-0 text-xs px-3 pt-1.5 pb-2 rounded-lg font-semibold border-2 transition-all whitespace-nowrap ${
+                          isActive
+                            ? "bg-blue-600 text-white border-blue-600 shadow-[0_4px_12px_rgba(37,99,235,0.4)] border-b-[3px]"
+                            : "bg-white text-gray-500 border-gray-200 hover:border-blue-300 hover:text-blue-600"
+                        }`}
+                        title={doc.specialization}
+                      >
+                        {doc.name}
+                        {waitCount > 0 && (
+                          <span
+                            className={`absolute -top-1.5 -right-1.5 min-w-[16px] h-4 px-0.5 rounded-full text-[10px] font-bold flex items-center justify-center leading-none ${
+                              isActive
+                                ? "bg-white text-blue-700"
+                                : "bg-blue-600 text-white"
+                            }`}
+                          >
+                            {waitCount}
+                          </span>
+                        )}
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+
+              <div className={`space-y-3 animate-fadeIn`}>
                 {displayedPatients.length === 0 ? (
                   <div className="p-6 text-center text-gray-600">
                     {patientSearch.trim()
@@ -1135,19 +1329,21 @@ const AssistantDashboard = () => {
                     return (
                       <div
                         key={patient._id}
-                        className={`p-4 rounded-xl border hover:shadow-md transition-all ${isHistoryView ? "readonly-card" : ""} ${
+                        className={`p-4 rounded-lg border transition-all duration-200 hover:shadow-md hover:border-blue-200 ${
+                          isHistoryView ? "readonly-card" : ""
+                        } ${
                           hasDuplicateName
-                            ? "border-amber-300 bg-amber-50"
-                            : "border-gray-100"
+                            ? "border-amber-200 bg-amber-50"
+                            : "border-gray-200 bg-white"
                         }`}
                       >
                         <div className="flex items-center justify-between">
                           <div className="flex items-center gap-4">
                             <div>
-                              <p className="text-sm text-gray-500 uppercase">
+                              <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-widest">
                                 Token
                               </p>
-                              <p className="text-2xl font-black text-medical-600">
+                              <p className="text-2xl font-bold text-blue-600 leading-none mt-0.5">
                                 {patient.tokenNumber}
                               </p>
                             </div>
@@ -1164,7 +1360,7 @@ const AssistantDashboard = () => {
                             )}
                             <button
                               onClick={() => togglePatientInfo(patient._id)}
-                              className="text-xs px-2 py-1 rounded bg-blue-100 text-blue-700 font-semibold hover:bg-blue-200"
+                              className="text-xs px-3 py-2 rounded-md font-semibold bg-blue-50 text-blue-700 hover:bg-blue-100 transition-colors active:bg-blue-200 min-h-[36px] flex items-center justify-center"
                             >
                               {isExpanded ? "Hide" : "Info"}
                             </button>
@@ -1180,7 +1376,7 @@ const AssistantDashboard = () => {
                                 )
                               }
                               disabled={isHistoryView}
-                              className="text-xs px-2 py-1 rounded border border-gray-200 bg-white"
+                              className="text-xs px-2 py-2 rounded-md border border-gray-300 bg-white font-medium hover:border-gray-400 transition-colors min-h-[36px] cursor-pointer"
                               title="Manual status override"
                             >
                               <option value="WAITING">Waiting</option>
@@ -1191,10 +1387,10 @@ const AssistantDashboard = () => {
                           </div>
                         </div>
 
-                        <div className="mt-3 pt-3 border-t flex items-center justify-between">
+                        <div className="mt-3 pt-3 border-t border-gray-100 flex items-center justify-between">
                           <div>
                             <div className="flex items-center gap-2">
-                              <p className="text-sm font-bold text-gray-800">
+                              <p className="text-sm font-semibold text-gray-900">
                                 {toTitleCase(patient.name)}
                               </p>
                               <button
@@ -1228,7 +1424,7 @@ const AssistantDashboard = () => {
                                 <Zap className="w-4 h-4" />
                               </button>
                             </div>
-                            <p className="text-xs text-gray-600 mt-1">
+                            <p className="text-xs text-gray-500 mt-1">
                               📞 {patient.phone}
                             </p>
                             {isExpanded && (

@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { useForm } from "react-hook-form";
 import axios from "axios";
 import { useNavigate } from "react-router-dom";
@@ -19,6 +19,7 @@ const ReceptionForm = ({ onPatientAdded }) => {
       age: "",
       gender: "FEMALE",
       type: "WALK_IN",
+      doctorId: "",
       guardianName: "",
       relation: "",
       address: "",
@@ -29,6 +30,14 @@ const ReceptionForm = ({ onPatientAdded }) => {
   const [successData, setSuccessData] = useState(null);
   const [isAppointment, setIsAppointment] = useState(false);
   const [showMoreDetails, setShowMoreDetails] = useState(false);
+  const [doctors, setDoctors] = useState([]);
+
+  useEffect(() => {
+    axios
+      .get(`${API_BASE}/api/doctors`)
+      .then((res) => setDoctors(res.data))
+      .catch(() => setDoctors([]));
+  }, []);
 
   const onSubmit = async (data) => {
     setIsSubmitting(true);
@@ -359,6 +368,32 @@ const ReceptionForm = ({ onPatientAdded }) => {
                   Male
                 </label>
               </div>
+            </div>
+
+            {/* Doctor Selection */}
+            <div>
+              <label className="block text-sm font-semibold text-gray-700 mb-2">
+                Doctor
+              </label>
+              <select
+                className="input-field bg-white"
+                {...register("doctorId", {
+                  required: "Please select a doctor",
+                })}
+              >
+                <option value="">— Select Doctor —</option>
+                {doctors.map((doc) => (
+                  <option key={doc._id} value={doc._id}>
+                    {doc.name}
+                    {doc.specialization ? ` — ${doc.specialization}` : ""}
+                  </option>
+                ))}
+              </select>
+              {errors.doctorId && (
+                <p className="text-red-500 text-sm mt-1 flex items-center gap-1">
+                  <span>⚠</span> {errors.doctorId.message}
+                </p>
+              )}
             </div>
 
             {/* Add More Details Toggle */}
