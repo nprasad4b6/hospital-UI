@@ -62,17 +62,17 @@ const ReceptionForm = ({ onPatientAdded }) => {
         whatsappSent: response.data.whatsappSent,
       });
 
+      // Auto-hide success message after 10 seconds
+      setTimeout(() => {
+        setSuccessData(null);
+      }, 10000);
+
       reset();
       setIsAppointment(false);
 
       if (onPatientAdded) {
         onPatientAdded(response.data);
       }
-
-      // Auto-hide success message after 10 seconds
-      setTimeout(() => {
-        setSuccessData(null);
-      }, 10000);
     } catch (error) {
       console.error("Error adding patient:", error);
       alert("Failed to register patient. Please try again.");
@@ -85,21 +85,6 @@ const ReceptionForm = ({ onPatientAdded }) => {
     return (
       <div className="min-h-screen bg-gradient-to-br from-medical-50 via-white to-medical-100 flex items-center justify-center p-4">
         <div className="w-full max-w-md">
-          <div className="flex items-center justify-center gap-2 mb-4">
-            <button
-              onClick={() => navigate("/assistant")}
-              className="px-3 py-2 rounded-lg text-sm font-semibold bg-medical-100 text-medical-700 hover:bg-medical-200"
-            >
-              Assistant Panel
-            </button>
-            <button
-              onClick={() => navigate("/lobby")}
-              className="px-3 py-2 rounded-lg text-sm font-semibold bg-indigo-100 text-indigo-700 hover:bg-indigo-200"
-            >
-              Lobby Display
-            </button>
-          </div>
-
           {/* Success Card */}
           <div className="bg-white rounded-2xl shadow-2xl p-8 animate-fade-in">
             {/* Checkmark Icon */}
@@ -187,14 +172,9 @@ const ReceptionForm = ({ onPatientAdded }) => {
               <p className="text-sm font-semibold text-gray-700 mb-2">
                 📍 Track Your Status
               </p>
-              <a
-                href={successData.trackingLink}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="inline-block w-full text-center bg-purple-600 hover:bg-purple-700 text-white font-semibold py-2 px-4 rounded-lg transition-colors text-sm"
-              >
-                Open Tracking Link
-              </a>
+              <div className="inline-block w-full text-center bg-purple-300 text-white font-semibold py-2 px-4 rounded-lg text-sm cursor-not-allowed opacity-80 select-none">
+                Open Tracking Link (Disabled)
+              </div>
               <p className="text-xs text-gray-600 mt-2">
                 Check real-time queue status and estimated wait time
               </p>
