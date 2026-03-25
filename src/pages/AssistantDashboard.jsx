@@ -82,12 +82,6 @@ const AssistantDashboard = () => {
   const isLastThreeMonthsMode = showLastThreeMonths;
   const isShowAllMode = !showLastThreeMonths && showAllByDate;
   const isTodayMode = !showLastThreeMonths && !showAllByDate;
-  const selectedDateLabel = useMemo(() => {
-    const parts = String(selectedDate || "").split("-");
-    if (parts.length !== 3) return selectedDate;
-    return `${parts[2]}-${parts[1]}-${parts[0]}`;
-  }, [selectedDate]);
-
   const showNotification = useCallback((msg) => {
     setNotification(msg);
     setTimeout(() => setNotification(""), 3000);
