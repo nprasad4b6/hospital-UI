@@ -290,6 +290,20 @@ const AssistantDashboard = () => {
     [fullQueue],
   );
 
+  // Per-doctor: lowest token number among WAITING patients (for tab badge)
+  const doctorNextTokens = useMemo(() => {
+    const tokens = {};
+    fullQueue.forEach((p) => {
+      if (p.status === "WAITING" && p.doctorId) {
+        const key = String(p.doctorId);
+        if (tokens[key] === undefined || p.tokenNumber < tokens[key]) {
+          tokens[key] = p.tokenNumber;
+        }
+      }
+    });
+    return tokens;
+  }, [fullQueue]);
+
   // Derive break state for whichever doctor tab is active
   const isBreak = !!doctorBreakStatus[activeDoctorId || "all"];
 
@@ -822,35 +836,35 @@ const AssistantDashboard = () => {
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-medical-50 to-blue-50 p-4 pb-20">
+    <div className="min-h-screen bg-gradient-to-br from-medical-50 to-blue-50 p-4 pb-28 md:pb-6">
       {/* Header */}
-      <div className="fixed top-0 left-0 right-0 z-40 bg-white border-b-2 border-medical-200 shadow-md p-4">
-        <div className="max-w-7xl mx-auto flex items-center justify-between flex-wrap gap-3">
+      <div className="fixed top-0 left-0 right-0 z-40 bg-white border-b-2 border-medical-200 shadow-md py-2 px-4 md:p-4">
+        <div className="max-w-7xl mx-auto flex items-center justify-between flex-wrap gap-2 md:gap-3">
           <div>
-            <h1 className="text-2xl font-bold text-medical-700">
+            <h1 className="text-base md:text-2xl font-bold text-medical-700 leading-tight">
               🏥 Assistant Panel
             </h1>
-            <p className="text-xs text-gray-600">
+            <p className="text-[10px] md:text-xs text-gray-600 hidden md:block">
               Clinical Assistant Dashboard
             </p>
           </div>
           <div className="flex items-center gap-3">
             <a
               href="/patient-registration"
-              className="text-xs px-3 py-2 rounded-lg bg-medical-100 text-medical-700 hover:bg-medical-200 font-semibold"
+              className="hidden md:inline text-xs px-3 py-2 rounded-lg bg-medical-100 text-medical-700 hover:bg-medical-200 font-semibold"
             >
               Patient Registration
             </a>
 
             <a
               href="/lobby"
-              className="text-xs px-3 py-2 rounded-lg bg-indigo-100 text-indigo-700 hover:bg-indigo-200 font-semibold"
+              className="hidden md:inline text-xs px-3 py-2 rounded-lg bg-indigo-100 text-indigo-700 hover:bg-indigo-200 font-semibold"
             >
               Lobby Display
             </a>
 
             {/* Date filter & Show All toggle */}
-            <div className="flex items-center gap-2 bg-white px-3 py-1 rounded-lg">
+            <div className="hidden md:flex items-center gap-2 bg-white px-3 py-1 rounded-lg">
               <label className="text-xs text-gray-700 font-semibold mr-2">
                 Filter date
               </label>
@@ -881,7 +895,7 @@ const AssistantDashboard = () => {
             {isVoiceSupported && (
               <button
                 onClick={() => setVoiceEnabled(!voiceEnabled)}
-                className={`rounded-full p-2 transition-all ${
+                className={`rounded-full p-2 min-h-[44px] min-w-[44px] flex items-center justify-center transition-all ${
                   voiceEnabled
                     ? "bg-green-100 text-green-600 hover:bg-green-200"
                     : "bg-gray-100 text-gray-400 hover:bg-gray-200"
@@ -904,7 +918,7 @@ const AssistantDashboard = () => {
 
             <button
               onClick={handleLogout}
-              className="text-xs px-3 py-2 rounded-lg bg-red-500 text-white hover:bg-red-600 font-semibold"
+              className="text-xs px-3 py-2 min-h-[44px] rounded-lg bg-red-500 text-white hover:bg-red-600 font-semibold"
             >
               Logout
             </button>
@@ -920,7 +934,7 @@ const AssistantDashboard = () => {
       )}
 
       {/* Main Content - Top Padding for Fixed Header */}
-      <div className="max-w-7xl mx-auto mt-24 px-4">
+      <div className="max-w-7xl mx-auto mt-14 md:mt-24 px-4">
         {isHistoryView && (
           <div className="mb-4 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-800">
             Viewing history: Actions are disabled for past dates.
@@ -1129,7 +1143,7 @@ const AssistantDashboard = () => {
                 </p>
                 <p className="text-gray-600 text-sm mb-4">
                   {nextPatient
-                    ? `Next to be called: ${toTitleCase(nextPatient.name)}`
+                    ? `Next to be called: #${nextPatient.tokenNumber} ${toTitleCase(nextPatient.name)}`
                     : "Queue is empty or all patients are completed"}
                 </p>
                 {nextPatient && (
@@ -1251,12 +1265,12 @@ const AssistantDashboard = () => {
 
               {/* Doctor Tabs */}
               {doctors.length > 0 && (
-                <div className="flex items-center gap-2 overflow-x-auto pb-2 mb-4 scrollbar-thin scrollbar-thumb-gray-200">
+                <div className="flex items-center gap-2 overflow-x-auto pb-2 mb-4 hide-scrollbar">
                   {/* All tab */}
                   <button
                     type="button"
                     onClick={() => setActiveDoctorId(null)}
-                    className={`relative shrink-0 text-xs px-3 pt-1.5 pb-2 rounded-lg font-semibold border-2 transition-all whitespace-nowrap ${
+                    className={`relative shrink-0 text-xs px-3 pt-1.5 pb-2 rounded-lg font-semibold border-2 transition-all whitespace-nowrap min-h-[44px] ${
                       activeDoctorId === null
                         ? "bg-blue-600 text-white border-blue-600 shadow-[0_4px_12px_rgba(37,99,235,0.4)] border-b-[3px]"
                         : "bg-white text-gray-500 border-gray-200 hover:border-blue-300 hover:text-blue-600"
@@ -1278,13 +1292,14 @@ const AssistantDashboard = () => {
 
                   {doctors.map((doc) => {
                     const waitCount = doctorWaitingCounts[doc._id] || 0;
+                    const nextToken = doctorNextTokens[doc._id];
                     const isActive = activeDoctorId === doc._id;
                     return (
                       <button
                         key={doc._id}
                         type="button"
                         onClick={() => setActiveDoctorId(doc._id)}
-                        className={`relative shrink-0 text-xs px-3 pt-1.5 pb-2 rounded-lg font-semibold border-2 transition-all whitespace-nowrap ${
+                        className={`relative shrink-0 text-xs px-3 pt-1.5 pb-2 rounded-lg font-semibold border-2 transition-all whitespace-nowrap min-h-[44px] ${
                           isActive
                             ? "bg-blue-600 text-white border-blue-600 shadow-[0_4px_12px_rgba(37,99,235,0.4)] border-b-[3px]"
                             : "bg-white text-gray-500 border-gray-200 hover:border-blue-300 hover:text-blue-600"
@@ -1292,6 +1307,15 @@ const AssistantDashboard = () => {
                         title={doc.specialization}
                       >
                         {doc.name}
+                        {nextToken !== undefined && (
+                          <span
+                            className={`block text-[9px] font-bold mt-0.5 leading-none ${
+                              isActive ? "text-blue-100" : "text-blue-500"
+                            }`}
+                          >
+                            #{nextToken}
+                          </span>
+                        )}
                         {waitCount > 0 && (
                           <span
                             className={`absolute -top-1.5 -right-1.5 min-w-[16px] h-4 px-0.5 rounded-full text-[10px] font-bold flex items-center justify-center leading-none ${
@@ -1329,7 +1353,7 @@ const AssistantDashboard = () => {
                     return (
                       <div
                         key={patient._id}
-                        className={`p-4 rounded-lg border transition-all duration-200 hover:shadow-md hover:border-blue-200 ${
+                        className={`p-3 md:p-4 rounded-lg border transition-all duration-200 hover:shadow-md hover:border-blue-200 ${
                           isHistoryView ? "readonly-card" : ""
                         } ${
                           hasDuplicateName
@@ -1360,7 +1384,7 @@ const AssistantDashboard = () => {
                             )}
                             <button
                               onClick={() => togglePatientInfo(patient._id)}
-                              className="text-xs px-3 py-2 rounded-md font-semibold bg-blue-50 text-blue-700 hover:bg-blue-100 transition-colors active:bg-blue-200 min-h-[36px] flex items-center justify-center"
+                              className="text-xs px-3 py-2 rounded-md font-semibold bg-blue-50 text-blue-700 hover:bg-blue-100 transition-colors active:bg-blue-200 min-h-[44px] min-w-[44px] flex items-center justify-center"
                             >
                               {isExpanded ? "Hide" : "Info"}
                             </button>
@@ -1376,7 +1400,7 @@ const AssistantDashboard = () => {
                                 )
                               }
                               disabled={isHistoryView}
-                              className="text-xs px-2 py-2 rounded-md border border-gray-300 bg-white font-medium hover:border-gray-400 transition-colors min-h-[36px] cursor-pointer"
+                              className="text-xs px-2 py-2 rounded-md border border-gray-300 bg-white font-medium hover:border-gray-400 transition-colors min-h-[44px] cursor-pointer"
                               title="Manual status override"
                             >
                               <option value="WAITING">Waiting</option>
@@ -1575,8 +1599,50 @@ const AssistantDashboard = () => {
         </div>
       </div>
 
+      {/* Fixed Bottom Navigation - Mobile Only */}
+      <div className="fixed bottom-0 left-0 right-0 z-40 bg-white border-t border-gray-200 shadow-[0_-4px_12px_rgba(0,0,0,0.08)] flex items-center justify-around py-2 md:hidden">
+        <a
+          href="/patient-registration"
+          className="flex flex-col items-center gap-0.5 px-6 min-h-[44px] justify-center rounded-lg text-medical-700 active:bg-medical-50"
+        >
+          <svg
+            className="w-5 h-5"
+            fill="none"
+            stroke="currentColor"
+            viewBox="0 0 24 24"
+          >
+            <path
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              strokeWidth={2}
+              d="M18 9v3m0 0v3m0-3h3m-3 0h-3m-2-5a4 4 0 11-8 0 4 4 0 018 0zM3 20a6 6 0 0112 0v1H3v-1z"
+            />
+          </svg>
+          <span className="text-[10px] font-semibold">Registration</span>
+        </a>
+        <a
+          href="/lobby"
+          className="flex flex-col items-center gap-0.5 px-6 min-h-[44px] justify-center rounded-lg text-indigo-700 active:bg-indigo-50"
+        >
+          <svg
+            className="w-5 h-5"
+            fill="none"
+            stroke="currentColor"
+            viewBox="0 0 24 24"
+          >
+            <path
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              strokeWidth={2}
+              d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"
+            />
+          </svg>
+          <span className="text-[10px] font-semibold">Lobby</span>
+        </a>
+      </div>
+
       {undoAction && (
-        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 bg-gray-900 text-white px-4 py-3 rounded-xl shadow-lg flex items-center gap-3">
+        <div className="fixed bottom-20 md:bottom-6 left-1/2 -translate-x-1/2 z-50 bg-gray-900 text-white px-4 py-3 rounded-xl shadow-lg flex items-center gap-3">
           <span className="text-sm">{undoAction.label} applied</span>
           <button
             onClick={handleUndo}
