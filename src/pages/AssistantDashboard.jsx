@@ -17,7 +17,6 @@ const SOCKET_SERVER = process.env.REACT_APP_API_URL || "http://localhost:5000";
 
 const AssistantDashboard = () => {
   const navigate = useNavigate();
-  const [currentPatient, setCurrentPatient] = useState(null);
   const [upcomingPatients, setUpcomingPatients] = useState([]);
   // keep entire queue data so we can print all patients for the day
   const [fullQueue, setFullQueue] = useState([]);
@@ -79,6 +78,7 @@ const AssistantDashboard = () => {
   }, []);
 
   const isHistoryView = selectedDate !== systemToday;
+  const isPastDateView = selectedDate < systemToday;
   const isLastThreeMonthsMode = showLastThreeMonths;
   const isShowAllMode = !showLastThreeMonths && showAllByDate;
   const isTodayMode = !showLastThreeMonths && !showAllByDate;
@@ -101,9 +101,6 @@ const AssistantDashboard = () => {
       // keep a copy of the entire queue (used for printing/export)
       setFullQueue(queue || []);
       if (queue && queue.length > 0) {
-        const inProgress = queue.find((p) => p.status === "IN_PROGRESS");
-        setCurrentPatient(inProgress || null);
-
         if (showAllByDate) {
           setUpcomingPatients(queue);
         } else {
@@ -113,7 +110,6 @@ const AssistantDashboard = () => {
           setUpcomingPatients(waiting);
         }
       } else {
-        setCurrentPatient(null);
         setUpcomingPatients([]);
       }
     },
@@ -202,13 +198,6 @@ const AssistantDashboard = () => {
     setShowAllByDate(false);
     if (socket) socket.emit("GET_QUEUE");
   };
-
-  // announce current patient when it changes
-  useEffect(() => {
-    if (currentPatient && voiceEnabled && isVoiceSupported) {
-      announcePatientCall(currentPatient.tokenNumber, currentPatient.name);
-    }
-  }, [currentPatient, voiceEnabled, isVoiceSupported, announcePatientCall]);
 
   const queueRefresh = () => {
     if (showLastThreeMonths) {
@@ -307,6 +296,33 @@ const AssistantDashboard = () => {
     return doctors.find((d) => d._id === activeDoctorId)?.name || null;
   }, [activeDoctorId, doctors]);
 
+  // Current IN_PROGRESS patient for active doctor tab (or first in-progress for All)
+  const activeCurrentPatient = useMemo(() => {
+    const inProgressList = fullQueue.filter((p) => p.status === "IN_PROGRESS");
+    if (activeDoctorId) {
+      return (
+        inProgressList.find((p) => String(p?.doctorId) === activeDoctorId) ||
+        null
+      );
+    }
+    return inProgressList[0] || null;
+  }, [fullQueue, activeDoctorId]);
+
+  // announce currently served patient in active doctor scope when it changes
+  useEffect(() => {
+    if (activeCurrentPatient && voiceEnabled && isVoiceSupported) {
+      announcePatientCall(
+        activeCurrentPatient.tokenNumber,
+        activeCurrentPatient.name,
+      );
+    }
+  }, [
+    activeCurrentPatient,
+    voiceEnabled,
+    isVoiceSupported,
+    announcePatientCall,
+  ]);
+
   useEffect(() => {
     fetchSelectedDateTotalCount();
   }, [fetchSelectedDateTotalCount, fullQueue.length]);
@@ -358,9 +374,20 @@ const AssistantDashboard = () => {
   };
 
   const handleCallNext = async () => {
+    if (isPastDateView) {
+      showNotification("Actions are disabled for past dates");
+      return;
+    }
+
     if (!socket || isLoading) return;
 
-    const currentInProgress = fullQueue.find((p) => p.status === "IN_PROGRESS");
+    const currentInProgress = activeDoctorId
+      ? fullQueue.find(
+          (p) =>
+            p.status === "IN_PROGRESS" &&
+            String(p?.doctorId) === activeDoctorId,
+        )
+      : fullQueue.find((p) => p.status === "IN_PROGRESS");
 
     // When a doctor tab is active, only pick from that doctor's waiting patients
     const waitingPool = activeDoctorId
@@ -376,7 +403,7 @@ const AssistantDashboard = () => {
     setIsLoading(true);
     try {
       if (activeDoctorId && nextWaiting) {
-        // Doctor-scoped: complete current globally, then promote specific next patient
+        // Doctor-scoped: complete current for selected doctor, then promote next for same doctor
         if (currentInProgress?._id) {
           await axios.put(
             `${SOCKET_SERVER}/api/patients/${currentInProgress._id}/status`,
@@ -418,19 +445,17 @@ const AssistantDashboard = () => {
   };
 
   const handleVisitDone = async () => {
-    if (!currentPatient?._id || isLoading) return;
+    if (!activeCurrentPatient?._id || isLoading) return;
 
     setIsLoading(true);
     try {
       await axios.put(
-        `${SOCKET_SERVER}/api/patients/${currentPatient._id}/status`,
+        `${SOCKET_SERVER}/api/patients/${activeCurrentPatient._id}/status`,
         {
           status: "COMPLETED",
         },
       );
 
-      // Clear active card immediately, then refresh from server.
-      setCurrentPatient(null);
       showNotification("Visit marked as completed");
       queueRefresh();
     } catch (error) {
@@ -472,7 +497,7 @@ const AssistantDashboard = () => {
     previousStatus,
     options = {},
   ) => {
-    if (isHistoryView) {
+    if (isPastDateView) {
       showNotification("Actions are disabled for past dates");
       return;
     }
@@ -835,9 +860,16 @@ const AssistantDashboard = () => {
       <div className="fixed top-0 left-0 right-0 z-40 bg-white border-b-2 border-medical-200 shadow-md py-2 px-4 md:p-4">
         <div className="max-w-7xl mx-auto flex items-center justify-between flex-wrap gap-2 md:gap-3">
           <div>
-            <h1 className="text-base md:text-2xl font-bold text-medical-700 leading-tight">
-              🏥 Assistant Panel
-            </h1>
+            <div className="flex items-center">
+              <img
+                src="/shalom-logo.avif"
+                alt="Shalom Hospital Logo"
+                style={{ height: "45px", width: "auto", marginRight: "10px" }}
+              />
+              <h1 className="text-base md:text-2xl font-bold text-medical-700 leading-tight">
+                Assistant Panel
+              </h1>
+            </div>
             <p className="text-[10px] md:text-xs text-gray-600 hidden md:block">
               Clinical Assistant Dashboard
             </p>
@@ -987,7 +1019,7 @@ const AssistantDashboard = () => {
             </div>
 
             {/* Active Patient Card */}
-            {currentPatient ? (
+            {activeCurrentPatient ? (
               <div className="bg-gradient-to-br from-medical-600 to-medical-700 rounded-3xl shadow-2xl p-6 text-white">
                 <p className="text-sm font-semibold opacity-90">
                   NOW BEING SERVED
@@ -995,7 +1027,7 @@ const AssistantDashboard = () => {
 
                 <div className="my-4">
                   <p className="text-6xl font-black text-center mb-2">
-                    {currentPatient.tokenNumber}
+                    {activeCurrentPatient.tokenNumber}
                   </p>
                   <p className="text-center text-medical-100 font-semibold">
                     Token Number
@@ -1006,29 +1038,29 @@ const AssistantDashboard = () => {
                   <div>
                     <p className="text-xs opacity-75">PATIENT NAME</p>
                     <p className="text-lg font-bold">
-                      {toTitleCase(currentPatient.name)}
+                      {toTitleCase(activeCurrentPatient.name)}
                     </p>
                   </div>
                   <div className="grid grid-cols-2 gap-4">
                     <div>
                       <p className="text-xs opacity-75">PHONE</p>
                       <p className="text-sm font-semibold">
-                        {currentPatient.phone}
+                        {activeCurrentPatient.phone}
                       </p>
                     </div>
                     <div>
                       <p className="text-xs opacity-75">AGE / GENDER</p>
                       <p className="text-sm font-semibold">
-                        {currentPatient.age ?? "-"} /{" "}
-                        {currentPatient.gender || "FEMALE"}
+                        {activeCurrentPatient.age ?? "-"} /{" "}
+                        {activeCurrentPatient.gender || "FEMALE"}
                       </p>
                     </div>
                     <div>
                       <p className="text-xs opacity-75">TYPE</p>
                       <p
-                        className={`text-sm font-bold ${currentPatient.type === "BOOKED" ? "text-yellow-300" : "text-blue-300"}`}
+                        className={`text-sm font-bold ${activeCurrentPatient.type === "BOOKED" ? "text-yellow-300" : "text-blue-300"}`}
                       >
-                        {currentPatient.type}
+                        {activeCurrentPatient.type}
                       </p>
                     </div>
                   </div>
@@ -1036,7 +1068,7 @@ const AssistantDashboard = () => {
 
                 <button
                   onClick={handleCallNext}
-                  disabled={isLoading || isBreak}
+                  disabled={isLoading || isBreak || isPastDateView}
                   className={`w-full py-5 px-6 rounded-2xl font-bold text-lg transition-all transform ${isBreak ? "bg-gray-400 text-gray-600 cursor-not-allowed" : "bg-green-500 hover:bg-green-600 text-white active:scale-95 shadow-lg"} flex items-center justify-center gap-3`}
                 >
                   {isLoading ? (
@@ -1088,17 +1120,17 @@ const AssistantDashboard = () => {
                   <button
                     onClick={() =>
                       handleStatusAction(
-                        currentPatient._id,
+                        activeCurrentPatient._id,
                         "SKIPPED",
                         "Patient moved to skipped list",
-                        currentPatient.status,
+                        activeCurrentPatient.status,
                         {
                           confirmMessage:
                             "Skip current patient? You can undo this for a few seconds.",
                         },
                       )
                     }
-                    disabled={isLoading || isBreak}
+                    disabled={isLoading || isBreak || isPastDateView}
                     className="py-3 px-3 rounded-xl font-bold text-sm bg-yellow-500 hover:bg-yellow-600 text-white disabled:opacity-60"
                   >
                     Skip
@@ -1106,17 +1138,17 @@ const AssistantDashboard = () => {
                   <button
                     onClick={() =>
                       handleStatusAction(
-                        currentPatient._id,
+                        activeCurrentPatient._id,
                         "ON_HOLD",
                         "Patient sent for test (On Hold)",
-                        currentPatient.status,
+                        activeCurrentPatient.status,
                         {
                           confirmMessage:
                             "Mark current patient as Sent for Test (On Hold)?",
                         },
                       )
                     }
-                    disabled={isLoading || isBreak}
+                    disabled={isLoading || isBreak || isPastDateView}
                     className="py-3 px-3 rounded-xl font-bold text-sm bg-orange-500 hover:bg-orange-600 text-white disabled:opacity-60"
                   >
                     Sent for Test
@@ -1149,7 +1181,7 @@ const AssistantDashboard = () => {
                 <div className="mt-6">
                   <button
                     onClick={handleCallNext}
-                    disabled={isLoading || isBreak}
+                    disabled={isLoading || isBreak || isPastDateView}
                     className={`w-full py-3 px-4 rounded-2xl font-bold text-base transition-all transform ${isBreak ? "bg-gray-400 text-gray-600 cursor-not-allowed" : "bg-green-500 hover:bg-green-600 text-white active:scale-95 shadow-lg"}`}
                   >
                     {isLoading ? "Processing..." : "CALL NEXT"}

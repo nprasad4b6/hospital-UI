@@ -168,23 +168,18 @@ const Login = () => {
         <div className="bg-white rounded-2xl shadow-2xl overflow-hidden border border-medical-100">
           <div className="medical-gradient p-8 text-white">
             <div className="flex items-center justify-center mb-4">
-              <svg
-                className="w-10 h-10"
-                fill="none"
-                stroke="currentColor"
-                viewBox="0 0 24 24"
-              >
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  strokeWidth={2}
-                  d="M12 6v12m6-6H6m14 0a8 8 0 11-16 0 8 8 0 0116 0z"
-                />
-              </svg>
+              <img
+                src="/shalom-logo.avif"
+                alt="Shalom Hospital Logo"
+                style={{ width: "160px", height: "auto" }}
+              />
             </div>
             <h1 className="text-3xl font-bold text-center">Staff Login</h1>
             <p className="text-medical-100 text-center mt-2 text-sm">
               Secure OTP access for assistant panel
+            </p>
+            <p className="text-center mt-1 text-xs" style={{ color: "rgba(255,255,255,0.65)" }}>
+              Powered by Shalom Medical Centre
             </p>
           </div>
 
