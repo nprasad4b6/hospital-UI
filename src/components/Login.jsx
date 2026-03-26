@@ -178,7 +178,10 @@ const Login = () => {
             <p className="text-medical-100 text-center mt-2 text-sm">
               Secure OTP access for assistant panel
             </p>
-            <p className="text-center mt-1 text-xs" style={{ color: "rgba(255,255,255,0.65)" }}>
+            <p
+              className="text-center mt-1 text-xs"
+              style={{ color: "rgba(255,255,255,0.65)" }}
+            >
               Powered by Shalom Medical Centre
             </p>
           </div>
