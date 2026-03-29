@@ -2,6 +2,7 @@ import React, { useState, useEffect } from "react";
 import { useForm } from "react-hook-form";
 import axios from "axios";
 import { useNavigate } from "react-router-dom";
+import { auth } from "../firebase";
 import { maskPhone } from "../utils/formatters";
 const API_BASE = process.env.REACT_APP_API_URL || "http://localhost:5000";
 
@@ -38,6 +39,16 @@ const ReceptionForm = ({ onPatientAdded }) => {
       .then((res) => setDoctors(res.data))
       .catch(() => setDoctors([]));
   }, []);
+
+  const handleLogout = async () => {
+    try {
+      await auth.signOut();
+      navigate("/login", { replace: true });
+    } catch (error) {
+      console.error("Logout failed:", error);
+      alert("Failed to logout. Please try again.");
+    }
+  };
 
   const onSubmit = async (data) => {
     setIsSubmitting(true);
@@ -201,7 +212,7 @@ const ReceptionForm = ({ onPatientAdded }) => {
   return (
     <div className="min-h-screen bg-gradient-to-br from-medical-50 via-white to-medical-100 flex items-center justify-center p-4">
       <div className="w-full max-w-md">
-        <div className="flex items-center justify-center gap-2 mb-4">
+        <div className="flex items-center justify-center gap-2 mb-4 flex-wrap">
           <button
             onClick={() => navigate("/assistant")}
             className="px-3 py-2 rounded-lg text-sm font-semibold bg-medical-100 text-medical-700 hover:bg-medical-200"
@@ -213,6 +224,12 @@ const ReceptionForm = ({ onPatientAdded }) => {
             className="px-3 py-2 rounded-lg text-sm font-semibold bg-indigo-100 text-indigo-700 hover:bg-indigo-200"
           >
             Lobby Display
+          </button>
+          <button
+            onClick={handleLogout}
+            className="px-3 py-2 rounded-lg text-sm font-semibold bg-red-500 text-white hover:bg-red-600"
+          >
+            Logout
           </button>
         </div>
 

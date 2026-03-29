@@ -17,7 +17,6 @@ const SOCKET_SERVER = process.env.REACT_APP_API_URL || "http://localhost:5000";
 
 const AssistantDashboard = () => {
   const navigate = useNavigate();
-  const [upcomingPatients, setUpcomingPatients] = useState([]);
   // keep entire queue data so we can print all patients for the day
   const [fullQueue, setFullQueue] = useState([]);
   const [socket, setSocket] = useState(null);
@@ -43,6 +42,12 @@ const AssistantDashboard = () => {
   const [selectedDateTotalCount, setSelectedDateTotalCount] = useState(0);
   const [doctors, setDoctors] = useState([]);
   const [activeDoctorId, setActiveDoctorId] = useState(null);
+  const activeDoctorTab = useMemo(() => {
+    if (!activeDoctorId) return 0;
+    const idx = doctors.findIndex((d) => d._id === activeDoctorId);
+    return idx >= 0 ? idx + 1 : 0;
+  }, [activeDoctorId, doctors]);
+  const isAllDoctorsSelected = activeDoctorTab === 0;
   const [editingPatient, setEditingPatient] = useState(null);
   const [isEditSaving, setIsEditSaving] = useState(false);
   const [editForm, setEditForm] = useState({
@@ -77,7 +82,6 @@ const AssistantDashboard = () => {
     return `${y}-${m}-${d}`;
   }, []);
 
-  const isHistoryView = selectedDate !== systemToday;
   const isPastDateView = selectedDate < systemToday;
   const isLastThreeMonthsMode = showLastThreeMonths;
   const isShowAllMode = !showLastThreeMonths && showAllByDate;
@@ -96,25 +100,10 @@ const AssistantDashboard = () => {
   }, [selectedDate]);
 
   // update queue state based on server-sent queue
-  const updateQueueDisplay = useCallback(
-    (queue) => {
-      // keep a copy of the entire queue (used for printing/export)
-      setFullQueue(queue || []);
-      if (queue && queue.length > 0) {
-        if (showAllByDate) {
-          setUpcomingPatients(queue);
-        } else {
-          const waiting = queue
-            .filter((p) => p.status === "WAITING")
-            .slice(0, 5);
-          setUpcomingPatients(waiting);
-        }
-      } else {
-        setUpcomingPatients([]);
-      }
-    },
-    [showAllByDate],
-  );
+  const updateQueueDisplay = useCallback((queue) => {
+    // keep a copy of the entire queue (used for printing/export)
+    setFullQueue(queue || []);
+  }, []);
 
   // Keep ref in sync so the socket handler always calls the latest version
   useEffect(() => {
@@ -379,6 +368,11 @@ const AssistantDashboard = () => {
       return;
     }
 
+    if (isAllDoctorsSelected) {
+      showNotification("Select a specific doctor first to call next patient");
+      return;
+    }
+
     if (!socket || isLoading) return;
 
     const currentInProgress = activeDoctorId
@@ -533,8 +527,8 @@ const AssistantDashboard = () => {
   };
 
   const handleEmergencyCall = async (patientId, patientName) => {
-    if (isHistoryView) {
-      showNotification("Quick Call is enabled only for today's patients");
+    if (isPastDateView) {
+      showNotification("Actions are disabled for past dates");
       return;
     }
 
@@ -676,7 +670,8 @@ const AssistantDashboard = () => {
     (p) =>
       p.status === "WAITING" ||
       p.status === "SKIPPED" ||
-      p.status === "ON_HOLD",
+      p.status === "ON_HOLD" ||
+      p.status === "SENT_FOR_TEST",
   );
 
   const togglePatientInfo = (patientId) => {
@@ -690,7 +685,18 @@ const AssistantDashboard = () => {
     const query = String(patientSearch || "")
       .trim()
       .toLowerCase();
-    const source = showLastThreeMonths ? historyPatients : upcomingPatients;
+    const source = showLastThreeMonths
+      ? historyPatients
+      : showAllByDate
+        ? fullQueue
+        : fullQueue
+            .filter((patient) => patient.status === "WAITING")
+            .filter((patient) =>
+              activeDoctorId
+                ? String(patient?.doctorId) === activeDoctorId
+                : true,
+            )
+            .slice(0, 5);
     const searchableList = showLastThreeMonths ? historyPatients : fullQueue;
 
     let list = !query
@@ -713,8 +719,8 @@ const AssistantDashboard = () => {
     return list;
   }, [
     patientSearch,
-    upcomingPatients,
     fullQueue,
+    showAllByDate,
     showLastThreeMonths,
     historyPatients,
     activeDoctorId,
@@ -791,6 +797,9 @@ const AssistantDashboard = () => {
       const response = await axios.get(`${SOCKET_SERVER}/api/queue-by-date`, {
         params: { date: selectedDate },
       });
+      const doctorNameById = Object.fromEntries(
+        (doctors || []).map((d) => [String(d?._id || ""), d?.name || "-"]),
+      );
 
       const patientsForDate = Array.isArray(response.data) ? response.data : [];
       const sortedPatientsForDate = patientsForDate
@@ -816,29 +825,58 @@ const AssistantDashboard = () => {
       html +=
         "th,td{border:1px solid #444;padding:6px;text-align:left;vertical-align:top;}";
       html += "th{background:#f3f4f6;font-weight:700;}";
+      html +=
+        ".status-badge{display:inline-block;padding:2px 8px;border-radius:999px;font-weight:700;font-size:11px;line-height:1.4;}";
+      html += ".status-completed{background:#dcfce7;color:#166534;}";
+      html += ".status-sent-for-test{background:#e0e7ff;color:#3730a3;}";
+      html += ".status-waiting{background:#e5e7eb;color:#1e3a8a;}";
+      html += ".status-skipped{background:#fee2e2;color:#991b1b;}";
+      html += ".status-default{background:#f3f4f6;color:#374151;}";
       html += "</style></head><body>";
       html += `<h2>${escapeHtml(title)}</h2>`;
       html += `<p>Total Patients: ${sortedPatientsForDate.length}</p>`;
       html += "<table><thead><tr>";
       html +=
-        "<th>Token</th><th>Name</th><th>Phone</th><th>Age</th><th>Gender</th><th>Guardian Name</th><th>Relation</th><th>Place/City</th><th>Type</th><th>Status</th><th>Created At</th><th>Started At</th><th>Completed At</th>";
+        "<th>Token</th><th>Name</th><th>Phone</th><th>Age</th><th>Gender</th><th>Doctor</th><th>Guardian Name</th><th>Relation</th><th>Place/City</th><th>Type</th><th>Status</th><th>Created At</th><th>Started At</th><th>Completed At</th>";
       html += "</tr></thead><tbody>";
 
       sortedPatientsForDate.forEach((patient) => {
+        const rawStatus = String(patient?.status || "").toUpperCase();
+        const normalizedStatus =
+          rawStatus === "ON_HOLD" ? "SENT_FOR_TEST" : rawStatus;
+        const statusClass =
+          normalizedStatus === "COMPLETED"
+            ? "status-completed"
+            : normalizedStatus === "SENT_FOR_TEST"
+              ? "status-sent-for-test"
+              : normalizedStatus === "WAITING"
+                ? "status-waiting"
+                : normalizedStatus === "SKIPPED"
+                  ? "status-skipped"
+                  : "status-default";
+        const completedAtDisplay =
+          normalizedStatus === "SENT_FOR_TEST"
+            ? "In Test"
+            : formatDateTime(patient?.completedAt);
+        const doctorName =
+          typeof patient?.doctorId === "object" && patient?.doctorId?.name
+            ? patient.doctorId.name
+            : doctorNameById[String(patient?.doctorId || "")] || "-";
         html += "<tr>";
         html += `<td>${escapeHtml(patient?.tokenNumber)}</td>`;
         html += `<td>${escapeHtml(patient?.name)}</td>`;
         html += `<td>${escapeHtml(patient?.phone)}</td>`;
         html += `<td>${escapeHtml(patient?.age)}</td>`;
         html += `<td>${escapeHtml(patient?.gender)}</td>`;
+        html += `<td>${escapeHtml(doctorName)}</td>`;
         html += `<td>${escapeHtml(patient?.guardianName || "-")}</td>`;
         html += `<td>${escapeHtml(patient?.relation || "-")}</td>`;
         html += `<td>${escapeHtml(patient?.address || "-")}</td>`;
         html += `<td>${escapeHtml(patient?.type)}</td>`;
-        html += `<td>${escapeHtml(patient?.status)}</td>`;
+        html += `<td><span class="status-badge ${statusClass}">${escapeHtml(normalizedStatus || "-")}</span></td>`;
         html += `<td>${escapeHtml(formatDateTime(patient?.createdAt))}</td>`;
         html += `<td>${escapeHtml(formatDateTime(patient?.startedAt))}</td>`;
-        html += `<td>${escapeHtml(formatDateTime(patient?.completedAt))}</td>`;
+        html += `<td>${escapeHtml(completedAtDisplay)}</td>`;
         html += "</tr>";
       });
 
@@ -961,7 +999,7 @@ const AssistantDashboard = () => {
 
       {/* Main Content - Top Padding for Fixed Header */}
       <div className="max-w-7xl mx-auto mt-14 md:mt-24 px-4">
-        {isHistoryView && (
+        {isPastDateView && (
           <div className="mb-4 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-800">
             Viewing history: Actions are disabled for past dates.
           </div>
@@ -1068,8 +1106,13 @@ const AssistantDashboard = () => {
 
                 <button
                   onClick={handleCallNext}
-                  disabled={isLoading || isBreak || isPastDateView}
-                  className={`w-full py-5 px-6 rounded-2xl font-bold text-lg transition-all transform ${isBreak ? "bg-gray-400 text-gray-600 cursor-not-allowed" : "bg-green-500 hover:bg-green-600 text-white active:scale-95 shadow-lg"} flex items-center justify-center gap-3`}
+                  disabled={
+                    isLoading ||
+                    isBreak ||
+                    isPastDateView ||
+                    isAllDoctorsSelected
+                  }
+                  className={`w-full py-5 px-6 rounded-2xl font-bold text-lg transition-all transform ${isBreak || isPastDateView || isAllDoctorsSelected ? "bg-gray-400 text-gray-600 cursor-not-allowed opacity-60" : "bg-green-500 hover:bg-green-600 text-white active:scale-95 shadow-lg"} flex items-center justify-center gap-3`}
                 >
                   {isLoading ? (
                     <>
@@ -1139,12 +1182,12 @@ const AssistantDashboard = () => {
                     onClick={() =>
                       handleStatusAction(
                         activeCurrentPatient._id,
-                        "ON_HOLD",
-                        "Patient sent for test (On Hold)",
+                        "SENT_FOR_TEST",
+                        "Patient sent for test",
                         activeCurrentPatient.status,
                         {
                           confirmMessage:
-                            "Mark current patient as Sent for Test (On Hold)?",
+                            "Mark current patient as Sent for Test?",
                         },
                       )
                     }
@@ -1181,8 +1224,13 @@ const AssistantDashboard = () => {
                 <div className="mt-6">
                   <button
                     onClick={handleCallNext}
-                    disabled={isLoading || isBreak || isPastDateView}
-                    className={`w-full py-3 px-4 rounded-2xl font-bold text-base transition-all transform ${isBreak ? "bg-gray-400 text-gray-600 cursor-not-allowed" : "bg-green-500 hover:bg-green-600 text-white active:scale-95 shadow-lg"}`}
+                    disabled={
+                      isLoading ||
+                      isBreak ||
+                      isPastDateView ||
+                      isAllDoctorsSelected
+                    }
+                    className={`w-full py-3 px-4 rounded-2xl font-bold text-base transition-all transform ${isBreak || isPastDateView || isAllDoctorsSelected ? "bg-gray-400 text-gray-600 cursor-not-allowed opacity-60" : "bg-green-500 hover:bg-green-600 text-white active:scale-95 shadow-lg"}`}
                   >
                     {isLoading ? "Processing..." : "CALL NEXT"}
                   </button>
@@ -1380,7 +1428,7 @@ const AssistantDashboard = () => {
                       <div
                         key={patient._id}
                         className={`p-3 md:p-4 rounded-lg border transition-all duration-200 hover:shadow-md hover:border-blue-200 ${
-                          isHistoryView ? "readonly-card" : ""
+                          isPastDateView ? "readonly-card" : ""
                         } ${
                           hasDuplicateName
                             ? "border-amber-200 bg-amber-50"
@@ -1425,13 +1473,15 @@ const AssistantDashboard = () => {
                                   { enableUndo: true },
                                 )
                               }
-                              disabled={isHistoryView}
+                              disabled={isPastDateView}
                               className="text-xs px-2 py-2 rounded-md border border-gray-300 bg-white font-medium hover:border-gray-400 transition-colors min-h-[44px] cursor-pointer"
                               title="Manual status override"
                             >
                               <option value="WAITING">Waiting</option>
                               <option value="IN_PROGRESS">In-Progress</option>
-                              <option value="ON_HOLD">On-Hold</option>
+                              <option value="SENT_FOR_TEST">
+                                Sent for Test
+                              </option>
                               <option value="SKIPPED">Skipped</option>
                             </select>
                           </div>
@@ -1446,10 +1496,10 @@ const AssistantDashboard = () => {
                               <button
                                 type="button"
                                 onClick={() => openEditModal(patient)}
-                                disabled={isHistoryView}
-                                className={`transition-colors ${!isHistoryView ? "text-gray-400 hover:text-blue-600" : "text-gray-300 cursor-not-allowed"}`}
+                                disabled={isPastDateView}
+                                className={`transition-colors ${!isPastDateView ? "text-gray-400 hover:text-blue-600" : "text-gray-300 cursor-not-allowed"}`}
                                 title={
-                                  !isHistoryView
+                                  !isPastDateView
                                     ? "Edit Patient"
                                     : "Edit disabled for past dates"
                                 }
@@ -1462,12 +1512,12 @@ const AssistantDashboard = () => {
                                 onClick={() =>
                                   handleEmergencyCall(patient._id, patient.name)
                                 }
-                                disabled={isHistoryView}
-                                className={`transition-colors ${!isHistoryView ? "text-gray-400 hover:text-yellow-500" : "text-gray-300 cursor-not-allowed"}`}
+                                disabled={isPastDateView}
+                                className={`transition-colors ${!isPastDateView ? "text-gray-400 hover:text-yellow-500" : "text-gray-300 cursor-not-allowed"}`}
                                 title={
-                                  !isHistoryView
+                                  !isPastDateView
                                     ? "Quick Call/Emergency"
-                                    : "Quick Call/Emergency (Today's patients only)"
+                                    : "Quick Call/Emergency disabled for past dates"
                                 }
                                 aria-label={`Quick Call/Emergency for ${toTitleCase(patient.name)}`}
                               >
@@ -1551,7 +1601,8 @@ const AssistantDashboard = () => {
             <div className="space-y-2 max-h-56 overflow-y-auto pr-1">
               {waitingSkippedPatients.map((patient) => {
                 const statusColor =
-                  patient.status === "ON_HOLD"
+                  patient.status === "ON_HOLD" ||
+                  patient.status === "SENT_FOR_TEST"
                     ? "bg-orange-100 text-orange-700"
                     : patient.status === "SKIPPED"
                       ? "bg-yellow-100 text-yellow-700"
@@ -1560,7 +1611,7 @@ const AssistantDashboard = () => {
                 return (
                   <div
                     key={`reentry-${patient._id}`}
-                    className={`flex items-center justify-between border rounded-lg p-3 ${isHistoryView ? "readonly-card" : ""}`}
+                    className={`flex items-center justify-between border rounded-lg p-3 ${isPastDateView ? "readonly-card" : ""}`}
                   >
                     <div>
                       <p className="text-sm font-bold text-gray-800">
@@ -1573,13 +1624,15 @@ const AssistantDashboard = () => {
                       <span
                         className={`text-xs font-bold px-2 py-1 rounded ${statusColor}`}
                       >
-                        {patient.status === "ON_HOLD"
-                          ? "ON HOLD"
+                        {patient.status === "ON_HOLD" ||
+                        patient.status === "SENT_FOR_TEST"
+                          ? "SENT FOR TEST"
                           : patient.status}
                       </span>
 
                       {(patient.status === "SKIPPED" ||
-                        patient.status === "ON_HOLD") && (
+                        patient.status === "ON_HOLD" ||
+                        patient.status === "SENT_FOR_TEST") && (
                         <button
                           onClick={() =>
                             handleStatusAction(
@@ -1589,7 +1642,7 @@ const AssistantDashboard = () => {
                               patient.status,
                             )
                           }
-                          disabled={isHistoryView}
+                          disabled={isPastDateView}
                           className="text-xs px-2 py-1 rounded bg-green-500 hover:bg-green-600 text-white font-semibold"
                         >
                           Re-add to Queue
@@ -1607,13 +1660,13 @@ const AssistantDashboard = () => {
                             { enableUndo: true },
                           )
                         }
-                        disabled={isHistoryView}
+                        disabled={isPastDateView}
                         className="text-xs px-2 py-1 rounded border border-gray-200 bg-white"
                         title="Manual status override"
                       >
                         <option value="WAITING">Waiting</option>
                         <option value="IN_PROGRESS">In-Progress</option>
-                        <option value="ON_HOLD">On-Hold</option>
+                        <option value="SENT_FOR_TEST">Sent for Test</option>
                         <option value="SKIPPED">Skipped</option>
                       </select>
                     </div>
